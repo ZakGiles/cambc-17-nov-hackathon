@@ -39,6 +39,18 @@ phais run main starter --maps maps/ --view   # all three maps
 phais view                                   # the newest replay
 ```
 
+## Ladder with Battlecode ranks
+
+`tools/ladder_proxy.py` serves the event site on localhost. Each team name gets a badge with its rank on the [Battlecode ladder](https://2026a.battlecode.co.uk/game/ladder). The ranks are in `site/bc_ladder.json`.
+
+```bash
+tools/ladder_proxy.py                 # then open http://localhost:8017/#/ladder
+tools/ladder_proxy.py --fetch         # copy the Battlecode ladder again
+tools/ladder_proxy.py --upstream URL  # the event site link changed
+```
+
+Names match without case, spaces or symbols. "A & B" gets both ranks. A unique prefix also matches. No badge when no team matches or two share the name.
+
 ## Submit
 
 Anyone on the site can read our live bot's name. So the name must not say what the bot does.
