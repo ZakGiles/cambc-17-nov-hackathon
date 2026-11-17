@@ -73,6 +73,13 @@ int uc[BOTS + 1], un[BOTS + 1], ur[BOTS + 1], nu = 0;  // cells dragged from thi
 bool plain[BOTS];             // last turn's move was an ordinary drag
 int lock_cell[BOTS], lock_cows[BOTS];  // where this botlet locked last turn, and the cows there then
 int lock_ok = 0, lock_bad = 0;         // locks that held, and locks that did not
+// Lair games freeze: our locks cancel their pulls and they keep trying. The score then
+// runs on at a steady rate. So after a long freeze work out the final score: the lead
+// now, plus the lead gained a turn times the turns left. If that loses, stop locking
+// for a while to shake the position.
+constexpr int kFrozenLocks = 7, kFrozenCheck = 30, kLooseTurns = 25;  // seven of eight locking for 60 turns is a freeze
+int frozen_run = 0, frozen_us = 0, frozen_them = 0, loose_until = -1;
+int max_turns = 500;
 int shy_cell[BOTS], shy_until[BOTS];  // a cell where our drag was cancelled: someone pulls against us there
 int rally = -1, rally_since = 0;         // the cell far walkers gather on, and since which turn
 
@@ -92,12 +99,18 @@ void set_cows(int c, int n) {
 
 void identify() {
     static constexpr int probe[4] = {1, 4 * N + 4, 13 * N, 7 * N + 6};
+    // A new map can match four cells by chance, and the wrong tables score nothing. Check twelve more.
+    static constexpr int check[12] = {0, 13, 182, 195, 45, 150, 143, 52, 97, 98, 35, 160};
     int seen[4];
     for (int k = 0; k < 4; ++k) seen[k] = phais::get_productivity(probe[k] % N, probe[k] / N);
     map_id = -1;
     for (int m = 0; m < kMaps; ++m) {
         bool same = true;
         for (int k = 0; k < 4; ++k) same = same && kP[m][probe[k]] == seen[k];
+        for (int k = 0; k < 12 && same; ++k) {
+            const int c = check[k];
+            same = kP[m][c] == phais::get_productivity(c % N, c / N);
+        }
         if (!same) continue;
         map_id = m;
         PV = kP[m], WAY = kWay[m], GAIN = kGain[m], HOT = kHot[m], HOTN = kHotN[m], NEAR = kNearCells[m];
@@ -326,7 +339,8 @@ void play() {
     // Lock: an enemy botlet stands with one of ours on a cell with cows. It will
     // drag one. Guess the drag from our own table turned half round, and pull
     // the same cow the other way: the pulls cancel and the cow stays.
-    if (map_id >= 0 && kLockOn[map_id] && (!kLockAdapt[map_id] || lock_bad <= lock_ok + kLockGrace) &&
+    int locks_now = 0;
+    if (map_id >= 0 && kLockOn[map_id] && turn_no >= loose_until && (!kLockAdapt[map_id] || lock_bad <= lock_ok + kLockGrace) &&
         spent + kLockCost + kKeep < kBudget) {
         spent += kLockCost;
         int ec[BOTS];
@@ -352,6 +366,20 @@ void play() {
             drag_from[i] = c;
             lock_cell[i] = c, lock_cows[i] = C[c];
             done[i] = true;
+            ++locks_now;
+        }
+    }
+    if (map_id == 2) {
+        frozen_run = locks_now >= kFrozenLocks ? frozen_run + 1 : 0;
+        if (frozen_run == kFrozenCheck || frozen_run == 2 * kFrozenCheck) {
+            const int us = phais::get_score(0), them = phais::get_score(1);
+            spent += 2 * kRead;
+            if (frozen_run == 2 * kFrozenCheck) {
+                const int gain = (us - frozen_us) - (them - frozen_them);  // over kFrozenCheck turns
+                if ((us - them) * kFrozenCheck + gain * (max_turns - turn_no) < 0) loose_until = turn_no + kLooseTurns;
+                frozen_run = 0;
+            }
+            frozen_us = us, frozen_them = them;
         }
     }
 
@@ -486,7 +514,7 @@ int main() {
     for (;;) {
         turn_no = phais::get_turn();
         spent = kRead;
-        if (map_id == -2) identify(), spent += 6000;  // the table copies are dear
+        if (map_id == -2) identify(), max_turns = phais::get_max_turns(), spent += 6000;  // the table copies are dear. Kept at 6000 so turn 0 plays as before; no cut-off on any of the three maps
         if (map_id >= 0 || !learn()) play();
         phais::end_turn();
     }
