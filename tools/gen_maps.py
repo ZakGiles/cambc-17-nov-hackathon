@@ -14,6 +14,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAPS = ["checkerboard", "frontier", "lair"]  # the order is the bot's map number
 N = 14
 DIRS = [(0, 1), (1, 0), (0, -1), (-1, 0)]  # N E S W, as the SDK numbers them
+NEAR = 8
 # Potential lost a step, in half points. High: a cow only goes to a better cell
 # close by. Low: flat spots do not stop a cow on its way up a slope.
 STEP = {"checkerboard": 5, "frontier": 1, "lair": 5}
@@ -48,7 +49,14 @@ def tables(m):
     for k, i in enumerate(order):
         where[i] = k
     hot = [i for i in range(N * N) if gain[i] > 0]  # cells worth a look: a cow there can be dragged
-    return p, cows, way, gain, order + [0] * (N * N - len(order)), where, hot + [0] * (N * N - len(hot)), len(order), len(hot)
+    # For each cell, the eight nearest cells worth a look, nearest first: a target search is eight checks.
+    near = []
+    for i in range(N * N):
+        x, y = i % N, i // N
+        cand = sorted((abs(j % N - x) + abs(j // N - y), -gain[j], j) for j in hot if j != i)
+        near.append([j for d, g, j in cand if d <= 4][:NEAR] + [255] * NEAR)
+        near[-1] = near[-1][:NEAR]
+    return p, cows, way, gain, order + [0] * (N * N - len(order)), where, hot + [0] * (N * N - len(hot)), len(order), len(hot), near
 
 
 def row(xs):
@@ -67,6 +75,10 @@ def main():
         out.append("};")
     out.append("constexpr int kListN[kMaps] = " + row(m[7] for m in t) + ";")
     out.append("constexpr int kHotN[kMaps] = " + row(m[8] for m in t) + ";")
+    out.append(f"constexpr int kNearN = {NEAR};")
+    out.append("constexpr unsigned char kNearCells[kMaps][196][kNearN] = {")
+    out += ["    {" + ",".join(row(c) for c in m[9]) + "}," for m in t]
+    out.append("};")
     open(os.path.join(ROOT, "bots", "main", "src", "maps.h"), "w").write("\n".join(out) + "\n")
     for name, m in zip(MAPS, t):
         print(name, "cells with cows", m[7], "cells worth a drag", m[8])
