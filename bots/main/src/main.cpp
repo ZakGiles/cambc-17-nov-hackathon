@@ -1,4 +1,4 @@
-// main v17: v16 with the teammate's s22 openings, a lair raid against Mite's rush, and the checkerboard turn-4 reads left uncounted as in s22.
+// main v18: the teammate's s24 as it is. v17's counted lair reads and raid tested worse on the server (tests 550-552), so they are out.
 // Drags each cow one step up a precomputed slope. Walks to the nearest cow worth dragging.
 //
 // Fuel: a read costs 133, a move 410, a loop step about 8. The turn has 20,000.
@@ -318,26 +318,6 @@ int other_way(int c) {
     return STAY;
 }
 
-// Frontier guards, against Swedish fish only. It steals from our corner through (0,1) only:
-// 85 times in one game, the last cow first, with none of us there. Guards stand on (0,1)
-// and pull the last cows back toward the corner: the pulls cancel and the raider is stuck.
-// On only against a bot that piles cows on its (3,8), our (10,5): no other bot we know does.
-// All who come home guard: seven raiders come in a wave.
-constexpr int kPost = N;             // (0,1)
-constexpr int kGuardFrom = 40;       // first turn we look for the pile
-constexpr int kGuards = 7;
-constexpr int kFishX = 10, kFishY = 5, kFishCows = 4;
-constexpr int kFishSeen = 3;         // checks in a row that must see the pile: cows hauled past do not stay
-bool fish = false;
-int fish_seen = 0;
-bool guard[BOTS];
-int n_guard = 0;
-// Lair, against Mite's rush. All eight of theirs ride one cow into our corner by turn 4 and stay
-// all game: 470 a turn for them, 280 for us. Their own corner has no botlet in it. So four of
-// ours go there and drag their cows out, each one step, along the table.
-bool raid_on = false;
-constexpr int kRaidFirst = 4;        // botlets 4 to 7 raid
-
 // Frontier: some bots beat our rides there (all eight still home at turn 6, or two pairs on the
 // edges at (7,13) and (13,7)). Against those, drop rides and scan a fixed 12 cells: that wins the map.
 bool taxi_off = false;
@@ -371,6 +351,7 @@ void read_opponent() {
     static const Fw kFw[] = {
         {4, {10 * N + 10, 11 * N + 10, 9 * N + 11, 10 * N + 11}, 3, 8, 10, 2, 32, 1, 4, false},  // Swedish fish #117
         {3, {13 * N + 7, 13 * N + 8, 13 * N + 9}, 2, 9, 10, 8, 16, 2, 2, false},  // NEETCoders #118
+        {1, {10 * N + 10}, 4, 10, 0, 12, 16, 2, 8, false},  // Swedish fish #124
         {2, {13 * N + 7, 7 * N + 13}, 3, 10, 0, 8, 8, 1, 4, true},  // Mite
         {2, {13 * N + 8, 8 * N + 13}, 4, 12, 10, 8, 8, 4, 4, false},  // bentheboss
         {1, {13 * N + 13}, 4, 4, 5, 8, 32, 3, 4, true},  // Swedish fish: all home
@@ -392,9 +373,8 @@ void read_opponent() {
 }
 
 void play() {
-    if (map_id == 1 && turn_no == 6) spent += 2 * BOTS * kRead + 300, read_opponent();  // sixteen reads, counted
+    if (map_id == 1 && turn_no == 6) read_opponent();
     if (map_id == 1 && turn_no == 14 && astra_fr) {
-        spent += 2 * BOTS * kRead + 300;  // sixteen reads, counted
         // Astra's newer bots (#98 on) stand on exactly (4,10), (6,8) and (7,7) here; the older ones elsewhere.
         static const int kNew[3] = {10 * N + 4, 8 * N + 6, 7 * N + 7};
         bool all = true, seen[3] = {false, false, false};
@@ -409,8 +389,16 @@ void play() {
             kKeep = kMovesCost + kScanMin * kScanCost;
         }
     }
+    if (map_id == 2 && turn_no == 8 && lair_one) {
+        // Swedish fish #124 stands all on (9,9) at turn 8; the bots sharing its turn-6 cell stand on two cells.
+        bool all = true;
+        for (int j = 0; j < BOTS; ++j) all &= phais::get_bot_y(1, j) * N + phais::get_bot_x(1, j) == 9 * N + 9;
+        if (all) {
+            kTaxiSize = 8, kTaxiFar = 9, kShyTurns = 10, kScanMin = 2, kScanMax = 16, kRest = 4, kRallyWait = 6; taxi_off = false, lock_live = false;
+            kKeep = kMovesCost + kScanMin * kScanCost;
+        }
+    }
     if (map_id == 2 && turn_no == 6 && lair_one) {
-        spent += 2 * BOTS * kRead + 300;  // sixteen reads, counted
         // Swedish fish #117 and Battlecode bots #57/#82 all stand on (11,11) at turn 4; at turn 6 #117 is on three cells.
         static const int kFish[3] = {10 * N + 10, 11 * N + 10, 10 * N + 11};
         bool all = true, seen[3] = {false, false, false};
@@ -426,7 +414,6 @@ void play() {
         }
     }
     if (map_id == 2 && turn_no == 4) {
-        spent += 2 * BOTS * kRead + 400;  // sixteen reads: uncounted, turn 4 ran out of fuel in every lair game
         // Lair: known openings at turn 4 and what beats each bot there.
         struct Lw { int n; int cells[8]; int ts, far, shy, lo, hi, rest, rally; bool off, live; };
         static const Lw kLw[] = {
@@ -453,12 +440,10 @@ void play() {
             kTaxiSize = s.ts, kTaxiFar = s.far, kShyTurns = s.shy, kScanMin = s.lo, kScanMax = s.hi, kRest = s.rest, kRallyWait = s.rally;
             taxi_off = s.off, lock_live = s.live;
             kKeep = kMovesCost + kScanMin * kScanCost;
-            raid_on = &s == &kLw[0];  // Mite's rush
             break;
         }
     }
     if (map_id == 0 && turn_no == 4) {
-        // The sixteen reads here are not counted, as in the teammate's s19: counting them changed turn 4 and lost checkerboard to Mite #90 (match 450).
         // Checkerboard: a bot that keeps all eight home this long out-drags our usual settings.
         int ecell[BOTS];
         bool home = true;
@@ -476,6 +461,8 @@ void play() {
         struct Sw { int n; int cells[8]; int lo, hi, rest, grace, shy; bool chain, live, adapt, taxi; int ts, far; };
         static const Sw kSw[] = {
             {7, {13 * N + 9, 12 * N + 10, 11 * N + 11, 13 * N + 11, 10 * N + 12, 9 * N + 13, 11 * N + 13}, 6, 32, 4, 0, 10, true, true, true, true, 3, 6},  // Astra #119
+            {6, {13 * N + 9, 12 * N + 10, 11 * N + 11, 10 * N + 12, 12 * N + 12, 9 * N + 13}, 8, 16, 2, 8, 60, true, true, true, true, 4, 6},  // Swedish fish #124
+            {7, {9 * N + 4, 11 * N + 4, 9 * N + 6, 11 * N + 7, 9 * N + 9, 9 * N + 11, 12 * N + 12}, 8, 8, 1, 6, 120, false, false, true, false, 2, 6},  // Mite #121, #132
             {4, {13 * N + 10, 12 * N + 11, 11 * N + 12, 12 * N + 13}, 6, 24, 1, 20, 120, true, true, false, true, 3, 9},  // bentheboss #79
             {1, {13 * N + 13}, 2, 24, 4, 8, 5, false, false, true, true, 4, 4},  // Swedish fish #52, #66: all home
             {6, {12 * N + 10, 11 * N + 11, 10 * N + 12, 11 * N + 12, 9 * N + 13, 13 * N + 13}, 4, 32, 2, 4, 60, true, false, false, false, 3, 9},  // Swedish fish #76
@@ -522,34 +509,6 @@ void play() {
     spent += 2 * BOTS * kRead + BOTS * (kRead + 60) + 900;  // 900: the ride loop below
     nu = 0;
 
-    // Raiders: on a cell of theirs with a cow, drag it out. Else walk to their nearest cell with a cow.
-    if (raid_on) {
-        spent += (BOTS - kRaidFirst) * 300;
-        for (int i = kRaidFirst; i < BOTS; ++i) {
-            if (done[i]) continue;
-            const int c = at[i];
-            ride[i] = -1;
-            if (PV[c] < 0 && WAY[c] != STAY && taken(c) < C[c]) {
-                drop_target(i);
-                mv_way[i] = WAY[c], mv_drag[i] = take(c), drag_from[i] = c, done[i] = true;
-                continue;
-            }
-            if (tgt[i] >= 0 && (tgt[i] == c || PV[tgt[i]] >= 0 || C[tgt[i]] == 0)) drop_target(i);
-            if (tgt[i] < 0) {
-                int best = -1, bd = 99;
-                for (int y = 10; y < N; ++y)
-                    for (int q = y * N + 10; q < y * N + N; ++q) {
-                        if (q == c || C[q] <= claim[q]) continue;
-                        const int d = dist(c, q);
-                        if (d < bd) bd = d, best = q;
-                    }
-                if (best >= 0) tgt[i] = best, ++claim[best];
-            }
-            if (tgt[i] >= 0) mv_way[i] = toward(c, tgt[i]), mv_drag[i] = -1, done[i] = true;
-            // none left: play on as the others do
-        }
-    }
-
     // Did last turn's locks hold? Held: we are still there and no cow left.
     for (int i = 0; i < BOTS; ++i) {
         if (lock_cell[i] < 0) continue;
@@ -557,33 +516,6 @@ void play() {
         else ++lock_bad;
         lock_cell[i] = -1;
     }
-
-    // Guards. Nothing but this one test runs on the other maps: a bot near its fuel limit
-    // lost two maps to cut-offs when the guard loop ran on every map.
-    if (map_id == 1 && turn_no >= kGuardFrom) {
-        // One read every fourth turn, left out of `spent`: counting it shifts every later turn of every game.
-        if (!fish && (turn_no & 3) == 0)
-            fish_seen = phais::get_cows(kFishX, kFishY) >= kFishCows ? fish_seen + 1 : 0, fish = fish_seen >= kFishSeen;
-        if (fish) {
-            spent += 400;
-            // Take guards from botlets that are home and not on a ride.
-            for (int i = 0; i < BOTS && n_guard < kGuards; ++i)
-                if (!guard[i] && !done[i] && ride[i] < 0 && (at[i] == 0 || at[i] == kPost)) guard[i] = true, ++n_guard, drop_target(i);
-            for (int i = 0; i < BOTS; ++i) {
-                if (!guard[i] || done[i]) continue;
-                const int c = at[i];
-                done[i] = true;
-                if (c == kPost) {
-                    if (taken(c) < C[c]) mv_way[i] = 2, mv_drag[i] = take_last(c), drag_from[i] = c;  // else wait
-                } else if (c != 0 && c % N == 0 && c / N <= 4 && WAY[c] != STAY && taken(c) < C[c]) {
-                    mv_way[i] = WAY[c], mv_drag[i] = take_last(c), drag_from[i] = c;  // pulled along with a cow: keep pulling it home
-                } else {
-                    mv_way[i] = toward(c, kPost), mv_drag[i] = -1;
-                }
-            }
-        }
-    }
-
 
     // Lock: an enemy botlet stands with one of ours on a cell with cows. It will
     // drag one. Guess the drag from our own table turned half round, and pull
