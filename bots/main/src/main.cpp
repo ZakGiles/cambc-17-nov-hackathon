@@ -21,18 +21,22 @@ constexpr int kBudget = 19000;                       // of 20,000; cut-offs star
 constexpr int kMovesCost = kRead + BOTS * kMove;     // the turn check and eight moves
 constexpr int kScanCost = kRead + 50;
 // Cells re-counted a turn, least and most, by map. Fewer is better on checkerboard: tested 0 to 32.
-constexpr int kScanLo[kMaps] = {4, 16, 16}, kScanHi[kMaps] = {8, 32, 32};
+constexpr int kScanLo[kMaps] = {4, 8, 16}, kScanHi[kMaps] = {8, 16, 32};
 int kScanMin = 16, kScanMax = 32;
 int kKeep = kMovesCost + 16 * kScanCost;             // fuel a search must leave
 constexpr int kRest = 2;                             // turns a botlet waits after finding nothing
 constexpr int kTaxiFar = 6;                          // a target this far is worth a ride
-constexpr int kTaxiSize = 3;                         // botlets that make a ride
+// Botlets that make a ride, by map. The teammate found 4 beats 3 on frontier; on lair 3 is better.
+constexpr int kTaxiSizes[kMaps] = {4, 4, 3};
+int kTaxiSize = 3;
 // Rides pay where work is far apart. On checkerboard cows are everywhere and gathering wastes turns.
 constexpr bool kTaxiOn[kMaps] = {false, true, true};
 constexpr int kRallyReach = 3, kRallyWait = 4;       // steps to walk to a ride; turns to wait for the others
 // Lock (from the teammate's s2): pull against the drag an enemy botlet on our cows will make.
 constexpr bool kLockOn[kMaps] = {true, false, true};
 constexpr int kLockCost = 2 * BOTS * kRead + 1200;
+constexpr bool kChain = false;                       // checkerboard: drag toward the next cow. Tested: worse over the pool
+constexpr int kShyTurns = 10;                        // turns we dodge on a cell where a drag was cancelled
 
 const signed char* PV = nullptr;     // productivity
 const unsigned char* WAY = nullptr;  // the way to drag a cow from a cell; STAY = leave it
@@ -61,7 +65,9 @@ int rest[BOTS];               // turns before this botlet searches again
 int ride[BOTS];               // the cell this botlet rides a cow to, -1 none
 int ride_at[BOTS];            // where it was when it last pulled: a ride that does not move is over
 bool done[BOTS];              // this turn's move is set
-int uc[BOTS + 1], un[BOTS + 1], nu = 0;  // cells dragged from this turn, and cows taken from each
+int uc[BOTS + 1], un[BOTS + 1], ur[BOTS + 1], nu = 0;  // cells dragged from this turn; cows taken from the front and the back
+bool plain[BOTS];             // last turn's move was an ordinary drag
+int shy_cell[BOTS], shy_until[BOTS];  // a cell where our drag was cancelled: someone pulls against us there
 int rally = -1, rally_since = 0;         // the cell far walkers gather on, and since which turn
 
 void set_cows(int c, int n) {
@@ -90,6 +96,7 @@ void identify() {
         map_id = m;
         PV = kP[m], WAY = kWay[m], GAIN = kGain[m], HOT = kHot[m], HOTN = kHotN[m], NEAR = kNearCells[m];
         kScanMin = kScanLo[m], kScanMax = kScanHi[m], kKeep = kMovesCost + kScanMin * kScanCost;
+        kTaxiSize = kTaxiSizes[m];
         std::memcpy(C, kC[m], CELLS);
         std::memcpy(L, kList[m], CELLS);
         std::memcpy(WH, kWhere[m], CELLS);
@@ -98,15 +105,17 @@ void identify() {
     }
 }
 
-// An unseen map: read it over five turns. True while still reading.
+// An unseen map: read it over six turns, half the board a turn. True while still reading.
+// Steps are counted, not taken from the turn number, so a late turn skips nothing.
+int learn_step = 0;
 bool learn() {
-    if (turn_no < 2) {
-        for (int c = turn_no * 98, e = c + 98; c < e; ++c) p_seen[c] = static_cast<signed char>(phais::get_productivity(c % N, c / N));
-        return true;
-    }
-    if (turn_no == 2) {
+    if (learn_step >= 6) return false;
+    const int half = learn_step & 1, c0 = half * 98, c1 = c0 + 98;
+    if (learn_step < 2) {
+        for (int c = c0; c < c1; ++c) p_seen[c] = static_cast<signed char>(phais::get_productivity(c % N, c / N));
+    } else if (learn_step < 4) {
         static constexpr int step[4] = {N, 1, -N, -1};
-        for (int c = 0; c < CELLS; ++c) {
+        for (int c = c0; c < c1; ++c) {
             const int x = c % N, y = c / N;
             const bool ok[4] = {y < N - 1, x < N - 1, y > 0, x > 0};
             int way = STAY, gain = 0;
@@ -117,13 +126,11 @@ bool learn() {
             hot_seen[c] = static_cast<unsigned char>(c);
         }
         PV = p_seen, WAY = way_seen, GAIN = gain_seen, HOT = hot_seen, HOTN = CELLS;
-        return true;
+    } else {
+        for (int c = c0; c < c1; ++c) set_cows(c, phais::get_cows(c % N, c / N));
     }
-    if (turn_no < 5) {
-        for (int c = (turn_no - 3) * 98, e = c + 98; c < e; ++c) set_cows(c, phais::get_cows(c % N, c / N));
-        return true;
-    }
-    return false;
+    ++learn_step;
+    return true;
 }
 
 inline int score(int c, int x, int y) {
@@ -183,7 +190,7 @@ inline int dist(int a, int b) {
 
 int taken(int c) {
     for (int k = 0; k < nu; ++k)
-        if (uc[k] == c) return un[k];
+        if (uc[k] == c) return un[k] + ur[k];
     return 0;
 }
 
@@ -191,8 +198,16 @@ int taken(int c) {
 int take(int c) {
     for (int k = 0; k < nu; ++k)
         if (uc[k] == c) return un[k]++;
-    uc[nu] = c, un[nu++] = 1;
+    uc[nu] = c, ur[nu] = 0, un[nu++] = 1;
     return 0;
+}
+
+// The same from the back: a locker guesses we take the first cow.
+int take_last(int c) {
+    for (int k = 0; k < nu; ++k)
+        if (uc[k] == c) return C[c] - 1 - ur[k]++;
+    uc[nu] = c, un[nu] = 0, ur[nu++] = 1;
+    return C[c] - 1;
 }
 
 inline int toward(int from, int to) {
@@ -236,12 +251,50 @@ void pull(const int* who, int k, int c, int to) {
     drag_from[who[0]] = c;
 }
 
+// Checkerboard: a cow on c can go to more than one of our cells. Take the one
+// with another enemy-side cow beside it, so the next drag needs no walk.
+int chain_way(int c) {
+    static constexpr int step[4] = {N, 1, -N, -1};
+    const int x = c % N, y = c / N;
+    const bool ok[4] = {y < N - 1, x < N - 1, y > 0, x > 0};
+    const bool more_here = C[c] - taken(c) > 1;  // a cow stays behind: step back for it
+    int best = WAY[c], best_s = -1;
+    for (int d = 0; d < 4; ++d) {
+        if (!ok[d]) continue;
+        const int q = c + step[d];
+        if (PV[q] <= PV[c]) continue;
+        int sc = d == WAY[c] ? 1 : 0;
+        if (more_here) sc += 4;
+        const int qx = q % N, qy = q / N;
+        const bool okq[4] = {qy < N - 1, qx < N - 1, qy > 0, qx > 0};
+        for (int e = 0; e < 4; ++e) {
+            if (!okq[e]) continue;
+            const int m = q + step[e];
+            if (m != c && PV[m] < 0 && C[m] > claim[m]) sc += 2;
+        }
+        if (sc > best_s) best_s = sc, best = d;
+    }
+    return best;
+}
+
+// A second way to drag a cow from c to a better cell, STAY when there is none.
+int other_way(int c) {
+    static constexpr int step[4] = {N, 1, -N, -1};
+    const int x = c % N, y = c / N;
+    const bool ok[4] = {y < N - 1, x < N - 1, y > 0, x > 0};
+    for (int d = 0; d < 4; ++d)
+        if (d != WAY[c] && ok[d] && PV[c + step[d]] > PV[c]) return d;
+    return STAY;
+}
+
 void play() {
     for (int i = 0; i < BOTS; ++i) {
         const int x = phais::get_bot_x(0, i), y = phais::get_bot_y(0, i);
         const int c = x < 0 || y < 0 || x >= N || y >= N ? -1 : y * N + x;
         const int from = drag_from[i];
         if (from >= 0 && from != c && C[from] > 0) set_cows(from, C[from] - 1);
+        if (plain[i] && from >= 0 && from == c) shy_cell[i] = c, shy_until[i] = turn_no + kShyTurns;
+        plain[i] = false;
         drag_from[i] = -1;
         at[i] = c;
         done[i] = c < 0;
@@ -308,11 +361,22 @@ void play() {
         const int c = at[i];
         spent += kBotlet;
         if (WAY[c] != STAY && taken(c) < C[c]) {
-            drop_target(i);
-            mv_way[i] = WAY[c], mv_drag[i] = take(c);
-            drag_from[i] = c;
-            done[i] = true;
-            continue;
+            int way = map_id == 0 && kChain ? chain_way(c) : WAY[c], idx = -1;
+            if (shy_cell[i] == c && turn_no < shy_until[i]) {
+                // Our last drag here was cancelled. Take the last cow, or another way out, or leave.
+                if (C[c] - taken(c) >= 2) idx = take_last(c);
+                else if ((way = other_way(c)) != STAY) idx = take(c);
+            } else {
+                idx = take(c);
+            }
+            if (idx >= 0) {
+                drop_target(i);
+                mv_way[i] = way, mv_drag[i] = idx;
+                drag_from[i] = c;
+                plain[i] = true;
+                done[i] = true;
+                continue;
+            }
         }
         if (tgt[i] >= 0 && (tgt[i] == c || C[tgt[i]] == 0)) drop_target(i);
         int t = tgt[i];
@@ -401,7 +465,7 @@ void play() {
 }
 
 int main() {
-    for (int i = 0; i < BOTS; ++i) tgt[i] = drag_from[i] = ride[i] = ride_at[i] = -1;
+    for (int i = 0; i < BOTS; ++i) tgt[i] = drag_from[i] = ride[i] = ride_at[i] = shy_cell[i] = -1;
     for (;;) {
         turn_no = phais::get_turn();
         spent = kRead;
