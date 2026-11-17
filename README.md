@@ -41,7 +41,7 @@ phais view                                   # the newest replay
 
 ## Ladder with Battlecode ranks
 
-`tools/ladder_proxy.py` serves the event site on localhost. Each team name gets a badge with its rank on the [Battlecode ladder](https://2026a.battlecode.co.uk/game/ladder). The ranks are in `site/bc_ladder.json`.
+`tools/ladder_proxy.py` serves the event site on localhost. Each team on the ladder gets its [Battlecode ladder](https://2026a.battlecode.co.uk/game/ladder) badges: rank and tier (Bronze to Challenger), finalist, climbing streak, category and flags. The data is in `site/bc_ladder.json`.
 
 ```bash
 tools/ladder_proxy.py                 # then open http://localhost:8017/#/ladder
