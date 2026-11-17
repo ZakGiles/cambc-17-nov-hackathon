@@ -38,6 +38,20 @@ def lair_phi(p):
     return phi
 
 
+def ways(phi):
+    way, gain = [], []
+    for i in range(N * N):
+        x, y = i % N, i // N
+        bd, bg = 4, 0
+        for d in (2, 3, 0, 1):  # ties go home: S, W first
+            nx, ny = x + DIRS[d][0], y + DIRS[d][1]
+            if 0 <= nx < N and 0 <= ny < N and phi[ny * N + nx] - phi[i] > bg:
+                bd, bg = d, phi[ny * N + nx] - phi[i]
+        way.append(bd)
+        gain.append(min(bg, 120))
+    return way, gain
+
+
 def tables(m):
     step = STEP[m["id"]]
     p = m["productivity"]
@@ -52,18 +66,10 @@ def tables(m):
             d = abs(j % N - x) + abs(j // N - y)
             best = max(best, 2 * p[j] - step * d)
         phi.append(best)
+    base_way = ways(phi)[0]  # main's table: the lock guesses enemy drags from it
     if m["id"] == "lair":
         phi = lair_phi(p)
-    way, gain = [], []
-    for i in range(N * N):
-        x, y = i % N, i // N
-        bd, bg = 4, 0
-        for d in (2, 3, 0, 1):  # ties go home: S, W first
-            nx, ny = x + DIRS[d][0], y + DIRS[d][1]
-            if 0 <= nx < N and 0 <= ny < N and phi[ny * N + nx] - phi[i] > bg:
-                bd, bg = d, phi[ny * N + nx] - phi[i]
-        way.append(bd)
-        gain.append(min(bg, 120))
+    way, gain = ways(phi)
     order = [i for i in range(N * N) if cows[i]]
     where = [255] * (N * N)
     for k, i in enumerate(order):
@@ -76,7 +82,7 @@ def tables(m):
         cand = sorted((abs(j % N - x) + abs(j // N - y), -gain[j], j) for j in hot if j != i)
         near.append([j for d, g, j in cand if d <= 4][:NEAR] + [255] * NEAR)
         near[-1] = near[-1][:NEAR]
-    return p, cows, way, gain, order + [0] * (N * N - len(order)), where, hot + [0] * (N * N - len(hot)), len(order), len(hot), near
+    return p, cows, way, gain, order + [0] * (N * N - len(order)), where, hot + [0] * (N * N - len(hot)), len(order), len(hot), near, base_way
 
 
 def row(xs):
@@ -95,6 +101,9 @@ def main():
         out.append("};")
     out.append("constexpr int kListN[kMaps] = " + row(m[7] for m in t) + ";")
     out.append("constexpr int kHotN[kMaps] = " + row(m[8] for m in t) + ";")
+    out.append("constexpr unsigned char kWayBase[kMaps][196] = {")
+    out += ["    " + row(m[10]) + "," for m in t]
+    out.append("};")
     out.append(f"constexpr int kNearN = {NEAR};")
     out.append("constexpr unsigned char kNearCells[kMaps][196][kNearN] = {")
     out += ["    {" + ",".join(row(c) for c in m[9]) + "}," for m in t]
