@@ -15,7 +15,7 @@ Event site: https://dock-welfare-against-gpl.trycloudflare.com (the link may cha
 4. Check: `phais --version` prints `phais 0.1.0`.
 5. In the repo: `phais build starter`. The first build fetches the compiler.
 6. Play: `phais run starter starter --maps maps/ --view`.
-7. To submit: make or join the team on the site, then `phais login`, then `phais submit main`.
+7. To submit: make or join the team on the site, then `phais login`. Then see Submit.
 
 The arena needs Python 3: `python3 tools/arena.py main starter`.
 
@@ -37,8 +37,18 @@ The arena needs Python 3: `python3 tools/arena.py main starter`.
 phais build main
 phais run main starter --maps maps/ --view   # all three maps
 phais view                                   # the newest replay
-phais submit main
 ```
+
+## Submit
+
+Anyone on the site can read our active bot's name. So submit a copy named `build-N`. Never `main`, and never a name that says what the bot does. N counts up.
+
+```bash
+mkdir bots/build-4 && cp -r bots/main/src bots/build-4/
+phais submit build-4
+```
+
+Copy only `src`. The `.phais` build folder holds paths to `bots/main`.
 
 ## Loop
 
@@ -57,9 +67,13 @@ tools/arena.py main v1 --games 10
 tools/arena.py main v1 --open       # open the first replay
 ```
 
-It prints each score and a command to open each replay, losses first. Replays go to `replays/arena/`.
+It prints each score, the score difference (ours - theirs) per game, map, seat and in total, and a command to open each replay, worst first. Replays go to `replays/arena/`.
 
 Six games only show a big difference.
+
+There are only three maps, so every run covers all of them. Check and iterate fast.
+
+Judge by score difference, not wins. Add up `ours - theirs` over the games. A 3-3 split can hide a big gain or loss.
 
 ## Kit
 

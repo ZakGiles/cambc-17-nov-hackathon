@@ -26,8 +26,9 @@ arena.json (any key can be overridden with a flag of the same name):
   stagger seconds between one game's start and the next, for an engine whose
           start-up must not overlap (a build check in the bot's directory)
 
-Six to ten games only show a large difference: a 4-2 means nothing, a 6-0
-means something. The point of a run this size is the replays.
+With a score regex it also prints ours - theirs for each game, per map, per
+seat and in total. Judge by that total, not by wins. Six to ten games only show
+a large difference. The point of a run this size is the replays.
 """
 import argparse
 import glob
@@ -107,6 +108,7 @@ def play(game, conf, cwd):
         one, two = int(scored.group(1)), int(scored.group(2))
         mine, theirs = (one, two) if game["a_first"] else (two, one)
         game["result"] = "WIN" if mine > theirs else "LOSS" if mine < theirs else "draw"
+        game["diff"] = mine - theirs
         extra = re.search(conf["note"], text) if conf["note"] else None
         game["note"] = f"{mine}-{theirs}" + (f"  {extra.group(0)}" if extra else "") + (f"  {note}" if note else "")
         return game
@@ -155,7 +157,8 @@ def main():
         for g in as_completed([pool.submit(play, g, conf, cwd) for g in games]):
             g = g.result()
             seat = "first" if g["a_first"] else "second"
-            print(f"  {g['n']:2d}  {g['map']:<16} {seat:<6}  {g['result']:<5}  {g['seconds']:5.1f}s  {g['note']}", flush=True)
+            diff = f"{g['diff']:+,}" if "diff" in g else ""
+            print(f"  {g['n']:2d}  {g['map']:<16} {seat:<6}  {g['result']:<5} {diff:>10}  {g['seconds']:5.1f}s  {g['note']}", flush=True)
 
     count = {r: sum(g["result"] == r for g in games) for r in ("WIN", "LOSS", "draw", "ERROR")}
     print(f"\n{os.path.basename(a)} won {count['WIN']}, lost {count['LOSS']}, drew {count['draw']} of {len(games)}"
@@ -164,9 +167,19 @@ def main():
         mine = [g for g in games if g["a_first"] == flag]
         print(f"  moving {seat}: {sum(g['result'] == 'WIN' for g in mine)} of {len(mine)}")
 
-    # Losses teach the most, so they head the list.
+    # Score difference, ours - theirs. This is the number to judge by.
+    scored = [g for g in games if "diff" in g]
+    if scored:
+        total = sum(g["diff"] for g in scored)
+        print(f"\nScore difference (ours - theirs): {total:+,} over {len(scored)} games, {total / len(scored):+,.0f} a game")
+        for m in sorted({g["map"] for g in scored}):
+            print(f"  {m:<16} {sum(g['diff'] for g in scored if g['map'] == m):+,}")
+        for seat, flag in (("first", True), ("second", False)):
+            print(f"  moving {seat:<6}   {sum(g['diff'] for g in scored if g['a_first'] == flag):+,}")
+
+    # Losses teach the most, so they head the list. The worst score difference first.
     rank = {"ERROR": 0, "LOSS": 1, "draw": 2, "WIN": 3}
-    watch = sorted(games, key=lambda g: (rank[g["result"]], g["n"]))
+    watch = sorted(games, key=lambda g: (g["result"] != "ERROR", g.get("diff", 0), rank[g["result"]], g["n"]))
     rel = lambda p: os.path.relpath(p, os.getcwd())
     print("\nWatch (losses first):")
     for g in watch:
@@ -175,7 +188,8 @@ def main():
             continue
         seen = os.path.exists(g["replay"])
         show = conf["view"].format(replay=shlex.quote(rel(g["replay"]))) if conf["view"] else rel(g["replay"])
-        print(f"  {g['n']:2d} {g['result']:<5}  {show}" + ("" if seen else "   (no replay file: see " + rel(g["log"]) + ")"))
+        diff = f"{g['diff']:+,}" if "diff" in g else ""
+        print(f"  {g['n']:2d} {g['result']:<5} {diff:>10}  {show}" + ("" if seen else "   (no replay file: see " + rel(g["log"]) + ")"))
     if args.open and conf["view"]:
         first = next((g for g in watch if os.path.exists(g["replay"])), None)
         if first:
