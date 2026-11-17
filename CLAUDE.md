@@ -14,6 +14,7 @@ Three-hour Battlecode-style competition in C++, in pairs, 17 Nov 2026. The game 
 - Compare before you push or submit: `tools/compare.py BOT` plays it against every other bot in `bots/` (20 seconds). Read the rows, not only the sum. No fuel cut-offs.
 - Tell the other active sessions the result before you submit. `bots/main` has one owner at a time; work in your own `bots/NAME` and send the owner what won.
 - Arena runs are 5 to 10 games. `tools/arena.py NEW OLD` plays 6.
+- Ladder tests: queue against every team. The rate limit is loose and a match is three maps.
 - Show the replays, losses first. Say what to look for.
 - Change something only after seeing it in a replay.
 - One change at a time. Freeze first: `cp -r bots/main bots/vN`.
