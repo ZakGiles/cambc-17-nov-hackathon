@@ -124,6 +124,7 @@ def main():
     print(head + (f"   change from {base}" if base else ""))
     total = [0, 0, 0]
     cuts = 0
+    cuts_by = [0, 0, 0]
     for o in others:
         r = rows[o]
         if r is None:
@@ -131,6 +132,7 @@ def main():
             continue
         d = [r[m][0] for m in MAPS]
         cuts += sum(r[m][1] for m in MAPS)
+        cuts_by = [c + r[m][1] for c, m in zip(cuts_by, MAPS)]
         total = [t + x for t, x in zip(total, d)]
         line = f"  {o:<16}" + "".join(f"{x:+14,d}" for x in d) + f"{sum(d):+14,d}"
         if noise > 1:
@@ -140,7 +142,8 @@ def main():
         lost = [m for m, x in zip(MAPS, d) if x < 0]
         print(line + (f"   loses {', '.join(lost)}" if lost else ""))
     print(f"  {'sum':<16}" + "".join(f"{x:+14,d}" for x in total) + f"{sum(total):+14,d}")
-    print(f"  fuel cut-offs of {bot}: {cuts}" + ("   <-- a bug: find it before submitting" if cuts else ""))
+    where = ", ".join(f"{m} {c}" for m, c in zip(MAPS, cuts_by) if c)
+    print(f"  fuel cut-offs of {bot}: {cuts}" + (f" ({where})   <-- a bug: find it before submitting" if cuts else ""))
     return 1 if cuts else 0
 
 
