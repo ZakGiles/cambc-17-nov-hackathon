@@ -1,4 +1,4 @@
-// main v23: v22 with the lair raid also on Swedish fish's turn-4 rush shapes.
+// main: the final bot (v23), entered in the tournament as bot #215. It is the teammate's s26 plus a two-botlet lair raid against a turn-4 rush.
 // Drags each cow one step up a precomputed slope. Walks to the nearest cow worth dragging.
 //
 // Fuel: a read costs 133, a move 410, a loop step about 8. The turn has 20,000.

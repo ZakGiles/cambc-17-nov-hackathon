@@ -9,3 +9,10 @@ __pycache__/
 compile_commands.json
 .phais/
 bots/*/.phais/
+
+# Local scratch: experiment bots, parked bots, editor files, notes.
+attic/
+bots/x*/
+bots/y*/
+.vscode/
+bots/main/IDEAS.md

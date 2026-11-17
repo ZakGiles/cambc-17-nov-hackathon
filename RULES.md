@@ -66,4 +66,4 @@ From the site's CLI page, 17 Nov. Marked "provisional" there. `?` = not checked 
 ## Server
 
 - Compiles on the server: Linux x64. Source up to 2 MB.
-- `site/` has the SDK header, the example bot, the map pool and the server info as saved.
+- Each bot folder has the SDK header (`phais.hpp`). `bots/starter` is the site's example bot. `maps/` has the map pool.
