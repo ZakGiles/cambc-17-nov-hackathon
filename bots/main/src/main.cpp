@@ -1,4 +1,4 @@
-// main v22: the teammate's s26 as it is, plus a two-botlet lair raid that fires only on Mite's older turn-4 rush (live as v58).
+// main v23: v22 with the lair raid also on Swedish fish's turn-4 rush shapes.
 // Drags each cow one step up a precomputed slope. Walks to the nearest cow worth dragging.
 //
 // Fuel: a read costs 133, a move 410, a loop step about 8. The turn has 20,000.
@@ -608,8 +608,16 @@ void play() {
         // One cell is enough to tell, and one test keeps this turn's fuel as it was: the turn ends in a
         // cut-off in s23, and where that lands decides games.
         bool mite = cells[0] < 6 * N && cells[0] % N <= 5;
-        if (mite)  // Mite #90, #132, #148 stand on (2,3), (3,2) and (4,3) only. Astra's rush stands elsewhere.
-            for (int k = 0; k < n; ++k) mite &= cells[k] == 3 * N + 2 || cells[k] == 2 * N + 3 || cells[k] == 3 * N + 4;  // not (3,4): against Mite #194 the raid made lair worse (tests 812, 813)
+        if (mite) {
+            // Mite's older bots stand on (2,3), (3,2), (4,3). Swedish fish on (1,3), (2,2), (4,5), or all on (5,5) (#207).
+            // Both leave their own corner empty. Not Mite #194's (3,4): there the raid made lair worse.
+            bool m = true, f = true;
+            for (int k = 0; k < n; ++k) {
+                m &= cells[k] == 3 * N + 2 || cells[k] == 2 * N + 3 || cells[k] == 3 * N + 4;
+                f &= cells[k] == 3 * N + 1 || cells[k] == 2 * N + 2 || cells[k] == 5 * N + 4 || cells[k] == 5 * N + 5;
+            }
+            mite = m || f;
+        }
         if (mite) {
             const Lw& s = kLw[0];  // the settings tuned against Mite's rush
             kTaxiSize = s.ts, kTaxiFar = s.far, kShyTurns = s.shy, kScanMin = s.lo, kScanMax = s.hi, kRest = s.rest, kRallyWait = s.rally;
