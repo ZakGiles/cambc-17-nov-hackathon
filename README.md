@@ -5,6 +5,7 @@ Three-hour Battlecode-style competition in C++, in pairs, 17 Nov 2026. The game 
 ## Layout
 
 - `lib/kit/`: tested C++20 headers. Run `make test`.
+- `lib/kitcambc/`: algorithms from the cambc bot. Not tested.
 - `tools/arena.py`, `arena.json`: quick games with replays.
 - `bots/main`: our bot. `bots/vN`: frozen copies.
 - `RULES.md`: the game's facts. Written on the day.
@@ -66,6 +67,19 @@ auto job = kit::assign_min(units.size(), targets.size(),
 ```
 
 Build with `-std=c++20 -Ilib`. To submit one directory: `cp -r lib/kit bots/main/src/kit`.
+
+## Kit from cambc
+
+`lib/kitcambc/`: algorithms from the 2026a bot, without the SDK. They compile. They are not tested.
+
+| header | what |
+| --- | --- |
+| `walk.h` | `Walker`: step down a field past other units, detour when stuck, flee |
+| `fight.h` | `odds` to fight or flee, `pick_target`, `kite`, `flee_step` |
+| `plan.h` | `choose` the best job by reward per turn. `Radio`: team claims in shared bytes. `Bans`: give up stalled jobs |
+| `atlas.h` | `Atlas`: walking distances between points of interest |
+
+It needs `lib/kit` beside it. Copy both into the bot.
 
 ## If it uses the `cambc` CLI
 
