@@ -1,4 +1,4 @@
-// main v15: the teammate's s17 (opening tables for checkerboard, frontier and lair) with the turn-4 lair reads counted and the Swedish fish guards.
+// main v16: the teammate's s19 (opening tables, Astra frontier switch) with every opening read counted as fuel and the Swedish fish guards.
 // Drags each cow one step up a precomputed slope. Walks to the nearest cow worth dragging.
 //
 // Fuel: a read costs 133, a move 410, a loop step about 8. The turn has 20,000.
@@ -84,20 +84,6 @@ int frozen_run = 0, frozen_us = 0, frozen_them = 0, loose_until = -1;
 int max_turns = 500;
 int shy_cell[BOTS], shy_until[BOTS];  // a cell where our drag was cancelled: someone pulls against us there
 int rally = -1, rally_since = 0;         // the cell far walkers gather on, and since which turn
-// Frontier guards, against Swedish fish only. It steals from our corner through (0,1) only:
-// 85 times in one game, the last cow first, with none of us there. Guards stand on (0,1)
-// and pull the last cows back toward the corner: the pulls cancel and the raider is stuck.
-// On only against a bot that piles cows on its (3,8), our (10,5): no other bot we know does.
-// All who come home guard: seven raiders come in a wave.
-constexpr int kPost = N;             // (0,1)
-constexpr int kGuardFrom = 40;       // first turn we look for the pile
-constexpr int kGuards = 7;
-constexpr int kFishX = 10, kFishY = 5, kFishCows = 4;
-constexpr int kFishSeen = 3;         // checks in a row that must see the pile: cows hauled past do not stay
-bool fish = false;
-int fish_seen = 0;
-bool guard[BOTS];
-int n_guard = 0;
 
 void set_cows(int c, int n) {
     const int old = C[c];
@@ -332,9 +318,25 @@ int other_way(int c) {
     return STAY;
 }
 
+// Frontier guards, against Swedish fish only. It steals from our corner through (0,1) only:
+// 85 times in one game, the last cow first, with none of us there. Guards stand on (0,1)
+// and pull the last cows back toward the corner: the pulls cancel and the raider is stuck.
+// On only against a bot that piles cows on its (3,8), our (10,5): no other bot we know does.
+// All who come home guard: seven raiders come in a wave.
+constexpr int kPost = N;             // (0,1)
+constexpr int kGuardFrom = 40;       // first turn we look for the pile
+constexpr int kGuards = 7;
+constexpr int kFishX = 10, kFishY = 5, kFishCows = 4;
+constexpr int kFishSeen = 3;         // checks in a row that must see the pile: cows hauled past do not stay
+bool fish = false;
+int fish_seen = 0;
+bool guard[BOTS];
+int n_guard = 0;
+
 // Frontier: some bots beat our rides there (all eight still home at turn 6, or two pairs on the
 // edges at (7,13) and (13,7)). Against those, drop rides and scan a fixed 12 cells: that wins the map.
 bool taxi_off = false;
+bool astra_fr = false;  // frontier: Astra's opening seen at turn 6
 void read_opponent() {
     int cells[BOTS], n = 0;
     for (int j = 0; j < BOTS; ++j) {
@@ -348,6 +350,7 @@ void read_opponent() {
     bool edges = n == 2 && ((cells[0] == 13 * N + 7 && cells[1] == 7 * N + 13) || (cells[1] == 13 * N + 7 && cells[0] == 7 * N + 13));
     const bool astra = n == 2 && ((cells[0] == 11 * N + 9 && cells[1] == 10 * N + 10) || (cells[1] == 11 * N + 9 && cells[0] == 10 * N + 10));
     if (astra) {  // two pairs at (9,11) and (10,10): small rides from far, a wide scan
+        astra_fr = true;
         kTaxiSize = 4, kTaxiFar = 10, kShyTurns = 0, kScanMin = 8, kScanMax = 32, kRest = 1, kRallyWait = 8; taxi_off = false;
         kKeep = kMovesCost + kScanMin * kScanCost;
     }
@@ -381,10 +384,26 @@ void read_opponent() {
 }
 
 void play() {
-    if (map_id == 1 && turn_no == 6) read_opponent();
+    if (map_id == 1 && turn_no == 6) spent += 2 * BOTS * kRead + 300, read_opponent();  // sixteen reads, counted
+    if (map_id == 1 && turn_no == 14 && astra_fr) {
+        spent += 2 * BOTS * kRead + 300;  // sixteen reads, counted
+        // Astra's newer bots (#98 on) stand on exactly (4,10), (6,8) and (7,7) here; the older ones elsewhere.
+        static const int kNew[3] = {10 * N + 4, 8 * N + 6, 7 * N + 7};
+        bool all = true, seen[3] = {false, false, false};
+        for (int j = 0; j < BOTS; ++j) {
+            const int c = phais::get_bot_y(1, j) * N + phais::get_bot_x(1, j);
+            bool in = false;
+            for (int k = 0; k < 3; ++k) if (kNew[k] == c) in = seen[k] = true;
+            all &= in;
+        }
+        if (all && seen[0] && seen[1] && seen[2]) {
+            kTaxiSize = 2, kTaxiFar = 9, kShyTurns = 0, kScanMin = 2, kScanMax = 24, kRest = 2, kRallyWait = 8; taxi_off = false;
+            kKeep = kMovesCost + kScanMin * kScanCost;
+        }
+    }
     if (map_id == 2 && turn_no == 4) {
-        // Lair: known openings at turn 4 and what beats each bot there.
         spent += 2 * BOTS * kRead + 400;  // sixteen reads: uncounted, turn 4 ran out of fuel in every lair game
+        // Lair: known openings at turn 4 and what beats each bot there.
         struct Lw { int n; int cells[8]; int ts, far, shy, lo, hi, rest, rally; bool off, live; };
         static const Lw kLw[] = {
             {2, {3 * N + 2, 2 * N + 3}, 5, 10, 30, 4, 24, 3, 4, false, true},
@@ -413,6 +432,7 @@ void play() {
         }
     }
     if (map_id == 0 && turn_no == 4) {
+        spent += 2 * BOTS * kRead + 400;  // sixteen reads: uncounted, turn 4 ran out against Swedish fish on the server
         // Checkerboard: a bot that keeps all eight home this long out-drags our usual settings.
         int ecell[BOTS];
         bool home = true;
@@ -475,6 +495,14 @@ void play() {
     spent += 2 * BOTS * kRead + BOTS * (kRead + 60) + 900;  // 900: the ride loop below
     nu = 0;
 
+    // Did last turn's locks hold? Held: we are still there and no cow left.
+    for (int i = 0; i < BOTS; ++i) {
+        if (lock_cell[i] < 0) continue;
+        if (at[i] == lock_cell[i] && C[at[i]] >= lock_cows[i]) ++lock_ok;
+        else ++lock_bad;
+        lock_cell[i] = -1;
+    }
+
     // Guards. Nothing but this one test runs on the other maps: a bot near its fuel limit
     // lost two maps to cut-offs when the guard loop ran on every map.
     if (map_id == 1 && turn_no >= kGuardFrom) {
@@ -501,13 +529,6 @@ void play() {
         }
     }
 
-    // Did last turn's locks hold? Held: we are still there and no cow left.
-    for (int i = 0; i < BOTS; ++i) {
-        if (lock_cell[i] < 0) continue;
-        if (at[i] == lock_cell[i] && C[at[i]] >= lock_cows[i]) ++lock_ok;
-        else ++lock_bad;
-        lock_cell[i] = -1;
-    }
 
     // Lock: an enemy botlet stands with one of ours on a cell with cows. It will
     // drag one. Guess the drag from our own table turned half round, and pull
