@@ -1,4 +1,4 @@
-// main v12: the teammate's s10 (reads the opening, checkerboard look-ahead) with main's lair table, the look-ahead's fuel counted, and stacks preferred.
+// main v13: the teammate's s12 (opening tables) with three changes: main's lair table, the look-ahead's fuel counted, stacks preferred on checkerboard.
 // Drags each cow one step up a precomputed slope. Walks to the nearest cow worth dragging.
 //
 // Fuel: a read costs 133, a move 410, a loop step about 8. The turn has 20,000.
@@ -73,6 +73,7 @@ bool done[BOTS];              // this turn's move is set
 int uc[BOTS + 1], un[BOTS + 1], ur[BOTS + 1], nu = 0;  // cells dragged from this turn; cows taken from the front and the back
 bool plain[BOTS];             // last turn's move was an ordinary drag
 int lock_cell[BOTS], lock_cows[BOTS];  // where this botlet locked last turn, and the cows there then
+bool lock_live = true, lock_adapt = true, cb_taxi = false;  // switched by the opening read
 int lock_ok = 0, lock_bad = 0;         // locks that held, and locks that did not
 // Lair games freeze: our locks cancel their pulls and they keep trying. The score then
 // runs on at a steady rate. So after a long freeze work out the final score: the lead
@@ -162,8 +163,8 @@ inline int score(int c, int x, int y) {
 
 // The nearest cell to fetch a cow from, from the precomputed list. -1 when none.
 inline int find_listed(int me) {
-    // Nearest first. Among cells as near, the one with the most free cows: a botlet
-    // can step in and out of a stack with no walking between drags.
+    // Nearest first. On checkerboard, among cells as near, the one with the most free
+    // cows: a botlet can step in and out of a stack with no walking between drags.
     const int mx = me % N, my = me / N;
     int best = -1, best_d = 99, best_n = 0;
     for (int k = 0; k < kNearN; ++k) {
@@ -174,7 +175,7 @@ inline int find_listed(int me) {
         const int cx = c % N, cy = c / N;
         const int d = (cx > mx ? cx - mx : mx - cx) + (cy > my ? cy - my : my - cy);
         if (d > best_d) break;  // the list is sorted by distance
-        if (d < best_d || (n > best_n && map_id == 0)) best = c, best_d = d, best_n = n;  // stacks: checkerboard only
+        if (d < best_d || (n > best_n && map_id == 0)) best = c, best_d = d, best_n = n;
     }
     return best;
 }
@@ -331,6 +332,11 @@ void read_opponent() {
     }
     bool home = n == 1 && cells[0] == 13 * N + 13;
     bool edges = n == 2 && ((cells[0] == 13 * N + 7 && cells[1] == 7 * N + 13) || (cells[1] == 13 * N + 7 && cells[0] == 7 * N + 13));
+    const bool astra = n == 2 && ((cells[0] == 11 * N + 9 && cells[1] == 10 * N + 10) || (cells[1] == 11 * N + 9 && cells[0] == 10 * N + 10));
+    if (astra) {  // two pairs at (9,11) and (10,10): small rides from far, a wide scan
+        kTaxiSize = 4, kTaxiFar = 10, kShyTurns = 0, kScanMin = 8, kScanMax = 32, kRest = 1, kRallyWait = 8; taxi_off = false;
+        kKeep = kMovesCost + kScanMin * kScanCost;
+    }
     if (home || edges) {
         taxi_off = true;
         kRallyWait = 6;
@@ -343,12 +349,43 @@ void play() {
     if (map_id == 1 && turn_no == 6) read_opponent();
     if (map_id == 0 && turn_no == 4) {
         // Checkerboard: a bot that keeps all eight home this long out-drags our usual settings.
+        int ecell[BOTS];
         bool home = true;
-        for (int j = 0; j < BOTS; ++j) home &= phais::get_bot_x(1, j) == 13 && phais::get_bot_y(1, j) == 13;
+        for (int j = 0; j < BOTS; ++j) {
+            const int ex = phais::get_bot_x(1, j), ey = phais::get_bot_y(1, j);
+            ecell[j] = ey * N + ex;
+            home &= ex == 13 && ey == 13;
+        }
 
         if (home) {
             kScanMin = 4, kScanMax = 16, kRest = 3, kLockGrace = 6, kShyTurns = 60, kChain = false;
             kKeep = kMovesCost + kScanMin * kScanCost;
+        }
+        // Known openings at turn 4, in our frame: cells the enemy stands on, and what beats that bot.
+        struct Sw { int n; int cells[8]; int lo, hi, rest, grace, shy; bool chain, live, adapt, taxi; int ts, far; };
+        static const Sw kSw[] = {
+            {4, {13 * N + 10, 12 * N + 11, 11 * N + 12, 12 * N + 13}, 6, 24, 1, 20, 120, true, true, false, true, 3, 9},  // bentheboss #79
+        };
+        int cells[BOTS], n = 0;
+        for (int j = 0; j < BOTS; ++j) {
+            const int c = ecell[j];
+            bool seen = false;
+            for (int k = 0; k < n; ++k) seen |= cells[k] == c;
+            if (!seen) cells[n++] = c;
+        }
+        for (const Sw& s : kSw) {
+            if (s.n != n) continue;
+            bool all = true;
+            for (int k = 0; k < n && all; ++k) {
+                bool hit = false;
+                for (int q = 0; q < n; ++q) hit |= cells[q] == s.cells[k];
+                all = hit;
+            }
+            if (!all) continue;
+            kScanMin = s.lo, kScanMax = s.hi, kRest = s.rest, kLockGrace = s.grace, kShyTurns = s.shy;
+            kChain = s.chain, lock_live = s.live, lock_adapt = s.adapt, cb_taxi = s.taxi, kTaxiSize = s.ts, kTaxiFar = s.far;
+            kKeep = kMovesCost + kScanMin * kScanCost;
+            break;
         }
     }
     for (int i = 0; i < BOTS; ++i) {
@@ -383,7 +420,7 @@ void play() {
     // drag one. Guess the drag from our own table turned half round, and pull
     // the same cow the other way: the pulls cancel and the cow stays.
     int locks_now = 0;
-    if (map_id >= 0 && kLockOn[map_id] && turn_no >= loose_until && (!kLockAdapt[map_id] || lock_bad <= lock_ok + kLockGrace) &&
+    if (map_id >= 0 && kLockOn[map_id] && lock_live && turn_no >= loose_until && (!(kLockAdapt[map_id] && lock_adapt) || lock_bad <= lock_ok + kLockGrace) &&
         spent + kLockCost + kKeep < kBudget) {
         spent += kLockCost;
         int ec[BOTS];
@@ -492,7 +529,7 @@ void play() {
         if (is_far || tgt[i] < 0) far[nf++] = i;  // idle botlets come along
     }
     const int rally_cost = 600 + (rally < 0 ? nf * nf * 40 : nf * 60);
-    if (lead >= 0 && nf >= kTaxiSize && map_id >= 0 && kTaxiOn[map_id] && !taxi_off && spent + rally_cost + kMovesCost < kBudget) {
+    if (lead >= 0 && nf >= kTaxiSize && map_id >= 0 && (kTaxiOn[map_id] || cb_taxi) && !taxi_off && spent + rally_cost + kMovesCost < kBudget) {
         spent += rally_cost;
         // The gathering cell: where the most of them already stand on a spare cow.
         if (rally >= 0 && (C[rally] <= taken(rally) || turn_no - rally_since > 3 * kRallyWait)) rally = -1;
