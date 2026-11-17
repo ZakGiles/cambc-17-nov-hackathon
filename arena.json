@@ -2,7 +2,7 @@
   "_note": "For phais 0.1.0. One game is one map. tools/arena.py --help lists the keys.",
   "prepare": "phais build $(basename {a}) && phais build $(basename {b})",
   "cmd": "phais run {first}/.phais/bot.wasm {second}/.phais/bot.wasm --maps {map} --seed {seed} -o {dir}/{stem} && mv {dir}/{stem}/*-map-1.json {replay} && rm -r {dir}/{stem} && grep -o '\"fuel_exhausted\":[^]]*]' {replay}",
-  "score": "scores (\\d+)-(\\d+)",
+  "score": "scores (-?\\d+)-(-?\\d+)",
   "note": "fuel_exhausted.*",
   "maps": "maps/*.json",
   "ext": ".json",

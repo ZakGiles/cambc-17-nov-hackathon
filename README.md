@@ -67,7 +67,7 @@ tools/arena.py main v1 --games 10
 tools/arena.py main v1 --open       # open the first replay
 ```
 
-It prints each score and a command to open each replay, losses first. Replays go to `replays/arena/`.
+It prints each score, the score difference (ours - theirs) per game, map, seat and in total, and a command to open each replay, worst first. Replays go to `replays/arena/`.
 
 Six games only show a big difference.
 
