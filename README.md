@@ -60,7 +60,7 @@ tools/submit.py main --dry   # show the next name
 tools/submit.py main         # phais submit main --name "<next name>"
 ```
 
-Names come from `names.txt`, one per line, top first. Each line is used once. The server cuts a name to 48 characters. `names.used` holds the used line numbers. After each submit, the script commits and pushes it to main.
+Names come from `names.txt`, one per line, top first. Each line is used once. The server cuts a name to 48 characters. `names.used` holds the used line numbers. Before it picks a name, the script reads `names.used` on origin/main too, since the other clone may have submitted. After each submit, it commits and pushes `names.used` to main.
 
 Submitting makes the new version live. `phais submissions live N` puts an old one back.
 
