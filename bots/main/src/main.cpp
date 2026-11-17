@@ -1,4 +1,4 @@
-// main v18: the teammate's s24 as it is. v17's counted lair reads and raid tested worse on the server (tests 550-552), so they are out.
+// main v19: the teammate's s25 as it is, plus a two-botlet lair raid that fires only on Mite's turn-4 rush.
 // Drags each cow one step up a precomputed slope. Walks to the nearest cow worth dragging.
 //
 // Fuel: a read costs 133, a move 410, a loop step about 8. The turn has 20,000.
@@ -323,6 +323,9 @@ int other_way(int c) {
 bool taxi_off = false;
 bool astra_fr = false;  // frontier: Astra's opening seen at turn 6
 bool lair_one = false;  // lair: one enemy cell, (11,11), at turn 4
+// Lair, against Mite's rush: two of ours go to their empty corner, drag their cows out and stay there.
+bool raid_on = false;
+constexpr int kRaidFirst = 6;  // botlets 6 and 7 raid
 void read_opponent() {
     int cells[BOTS], n = 0;
     for (int j = 0; j < BOTS; ++j) {
@@ -372,7 +375,164 @@ void read_opponent() {
     }
 }
 
+// ---- Frontier team play: the eight work as one team. ----
+// Haulers: a botlet on a cell with a cow drags it home, one cow each. Botlets on one cell
+// take one path home, so they move as a convoy. The rest pick a target together: far away,
+// they ride a cow there (pulls add, so k botlets move it and themselves k cells a turn).
+// Near it, they spread out, one cow each.
+bool team_on = true;
+int kRideMin = 3;      // ride when the target is this far
+int kDoneV = 9;        // a cow on a cell worth this much is home
+int kPreferUp = -1;
+int kDefN = 0;         // skip a cow cell with this many enemy botlets on or next to it
+int kGuard = 0;        // botlets that stay on our best cell while the enemy is near
+int kGuardR = 9;
+unsigned char tm_e[CELLS]; unsigned short tm_estamp[CELLS];
+     // opening: 1 = take the upper-left half of the diagonal, 0 = lower-right, -1 = none
+int tm_me[BOTS], tm_them[BOTS], tm_last[2 * BOTS], tm_nlast = 0;
+unsigned short tm_stamp[CELLS]; unsigned short tm_mark = 0;
+
+void tm_read(int c) {
+    if (c < 0 || tm_stamp[c] == tm_mark) return;
+    tm_stamp[c] = tm_mark;
+    set_cows(c, phais::get_cows(c % N, c / N));
+}
+
+// Cells with cows worth fetching this turn: cell, free cows, worth per cow.
+int tq_c[CELLS], tq_f[CELLS], tq_g[CELLS], tq_n = 0;
+unsigned char tm_x[CELLS], tm_y[CELLS];
+bool tm_xy = false;
+
+inline int tdist(int a, int b) {
+    const int dx = tm_x[a] - tm_x[b], dy = tm_y[a] - tm_y[b];
+    return (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
+}
+
+int tq_b[CELLS];  // per candidate, its worth seen from this group's cell
+int tq_at[CELLS]; unsigned short tq_stamp[CELLS];  // cell -> candidate index, valid when stamped this turn
+int tm_tgt[BOTS] = {-1, -1, -1, -1, -1, -1, -1, -1};
+
+// The best candidate by tq_b and the free cows left. -1 none.
+int tm_best() {
+    int best = -1, best_s = 0;
+    for (int k = 0; k < tq_n; ++k) {
+        const int f = tq_f[k];
+        if (f <= 0) continue;
+        const int sc = f > 1 ? tq_b[k] * 2 : tq_b[k];
+        if (sc > best_s) best_s = sc, best = k;
+    }
+    return best;
+}
+
+void team_frontier() {
+    if (!tm_xy) {
+        for (int c = 0; c < CELLS; ++c) tm_x[c] = static_cast<unsigned char>(c % N), tm_y[c] = static_cast<unsigned char>(c / N);
+        tm_xy = true;
+        return;  // this turn's fuel went on the tables
+    }
+    ++tm_mark;
+    if (tm_mark == 0) { std::memset(tm_stamp, 0, sizeof tm_stamp); tm_mark = 1; }
+    for (int i = 0; i < BOTS; ++i) {
+        const int x = phais::get_bot_x(0, i), y = phais::get_bot_y(0, i);
+        tm_me[i] = x < 0 || y < 0 || x >= N || y >= N ? -1 : y * N + x;
+        const int ex = phais::get_bot_x(1, i), ey = phais::get_bot_y(1, i);
+        tm_them[i] = ex < 0 || ey < 0 || ex >= N || ey >= N ? -1 : ey * N + ex;
+    }
+    // Cows move only from and to cells where a botlet was or is.
+    for (int k = 0; k < tm_nlast; ++k) tm_read(tm_last[k]);
+    for (int i = 0; i < BOTS; ++i) tm_read(tm_me[i]), tm_read(tm_them[i]);
+    for (int i = 0; i < BOTS; ++i) if (drag_from[i] >= 0) tm_read(drag_from[i]), drag_from[i] = -1;
+    for (int i = 0; i < BOTS; ++i) {
+        const int c = tm_them[i];
+        if (c < 0) continue;
+        if (tm_estamp[c] != tm_mark) tm_estamp[c] = tm_mark, tm_e[c] = 0;
+        ++tm_e[c];
+    }
+    nu = 0;
+    for (int i = 0; i < BOTS; ++i) at[i] = tm_me[i], done[i] = tm_me[i] < 0, mv_way[i] = STAY, mv_drag[i] = -1;
+    // Haulers.
+    for (int i = 0; i < BOTS; ++i) {
+        if (done[i]) continue;
+        const int c = at[i];
+        if (PV[c] >= kDoneV || WAY[c] == STAY || C[c] - taken(c) <= 0) continue;
+        mv_drag[i] = take(c), mv_way[i] = WAY[c], done[i] = true;
+    }
+    // Guards: the first kGuard free botlets on our best cell stay while an enemy is near.
+    if (kGuard > 0) {
+        int home = -1;
+        for (int k = 0; k < LN; ++k) if (PV[L[k]] >= kDoneV && (home < 0 || C[L[k]] > C[home])) home = L[k];
+        bool near = false;
+        for (int i = 0; i < BOTS && home >= 0; ++i) near |= tm_them[i] >= 0 && tdist(tm_them[i], home) <= kGuardR;
+        int g = 0;
+        for (int i = 0; i < BOTS && near && g < kGuard; ++i)
+            if (!done[i] && at[i] == home) done[i] = true, ++g;
+        for (int i = 0; i < BOTS && near && g < kGuard; ++i)
+            if (!done[i] && tdist(at[i], home) <= 3) mv_way[i] = toward(at[i], home), done[i] = true, ++g;
+    }
+    // What is left to fetch.
+    tq_n = 0;
+    for (int k = 0; k < LN; ++k) {
+        const int c = L[k];
+        if (PV[c] >= kDoneV) continue;
+        const int f = C[c] - taken(c);
+        if (f <= 0) continue;
+        if (kDefN > 0) {
+            int e = 0;
+            for (int i = 0; i < BOTS; ++i) e += tm_them[i] >= 0 && tdist(tm_them[i], c) <= 1;
+            if (e >= kDefN) continue;
+        }
+        int gain = 10 - PV[c];
+        if (kPreferUp >= 0 && turn_no < 20 && ((tm_x[c] < tm_y[c]) == (kPreferUp == 1))) gain += 1;
+        tq_at[c] = tq_n, tq_stamp[c] = tm_mark;
+        tq_c[tq_n] = c, tq_f[tq_n] = f, tq_g[tq_n++] = gain;
+    }
+    // Walkers keep their target while it still has a free cow.
+    for (int i = 0; i < BOTS; ++i) {
+        if (done[i]) { tm_tgt[i] = -1; continue; }
+        const int t = tm_tgt[i];
+        if (t < 0 || t == at[i] || tq_stamp[t] != tm_mark || tq_f[tq_at[t]] <= 0) { tm_tgt[i] = -1; continue; }
+        bool alone = true;
+        for (int j = 0; j < BOTS; ++j) alone &= j == i || at[j] != at[i] || done[j];
+        if (!alone && C[at[i]] - taken(at[i]) > 0) { tm_tgt[i] = -1; continue; }  // a group with a cow may ride
+        --tq_f[tq_at[t]];
+        mv_way[i] = toward(at[i], t), done[i] = true;
+    }
+    // The rest, by cell.
+    for (int i = 0; i < BOTS; ++i) {
+        if (done[i]) continue;
+        const int g = at[i];
+        int who[BOTS], k = 0;
+        for (int j = i; j < BOTS; ++j) if (!done[j] && at[j] == g) who[k++] = j;
+        for (int q = 0; q < tq_n; ++q) tq_b[q] = tq_g[q] * 1024 / (tdist(g, tq_c[q]) + 2);
+        const int tk = tm_best(), t = tk < 0 ? -1 : tq_c[tk];
+        if (t < 0) { for (int n = 0; n < k; ++n) done[who[n]] = true; continue; }
+        if (k >= 2 && tdist(g, t) >= kRideMin && C[g] - taken(g) > 0) {
+            tq_f[tk] -= k;
+            pull(who, k, g, t);
+            continue;
+        }
+        // Spread out: one cow each.
+        for (int n = 0; n < k; ++n) {
+            const int j = who[n], q = tm_best();
+            done[j] = true;
+            if (q < 0) continue;
+            --tq_f[q];
+            tm_tgt[j] = tq_c[q];
+            mv_way[j] = toward(g, tq_c[q]);
+        }
+    }
+    tm_nlast = 0;
+    for (int i = 0; i < BOTS; ++i) {
+        if (tm_them[i] >= 0) tm_last[tm_nlast++] = tm_them[i];
+        if (mv_drag[i] >= 0 && mv_way[i] != STAY) drag_from[i] = at[i];
+    }
+    if (phais::get_turn() != turn_no) return;
+    for (int i = 0; i < BOTS; ++i)
+        if (mv_way[i] != STAY) phais::submit_move(i, static_cast<Direction>(mv_way[i]), mv_drag[i]);
+}
+
 void play() {
+    if (map_id == 1 && team_on) { team_frontier(); return; }
     if (map_id == 1 && turn_no == 6) read_opponent();
     if (map_id == 1 && turn_no == 14 && astra_fr) {
         // Astra's newer bots (#98 on) stand on exactly (4,10), (6,8) and (7,7) here; the older ones elsewhere.
@@ -442,6 +602,21 @@ void play() {
             kKeep = kMovesCost + kScanMin * kScanCost;
             break;
         }
+        // A rush: all eight of theirs stand in our corner block at turn 4. Only a ride on a cow gets there
+        // that fast. Mite #90 stands on two cells then, #132 on three, so test the block, not the cells.
+        // One cell is enough to tell, and one test keeps this turn's fuel as it was: the turn ends in a
+        // cut-off in s23, and where that lands decides games.
+        bool mite = cells[0] < 6 * N && cells[0] % N <= 5;
+        if (mite)  // Mite #90, #132, #148 stand on (2,3), (3,2) and (4,3) only. Astra's rush stands elsewhere.
+            for (int k = 0; k < n; ++k) mite &= cells[k] == 3 * N + 2 || cells[k] == 2 * N + 3 || cells[k] == 3 * N + 4;
+        if (mite) {
+            const Lw& s = kLw[0];  // the settings tuned against Mite's rush
+            kTaxiSize = s.ts, kTaxiFar = s.far, kShyTurns = s.shy, kScanMin = s.lo, kScanMax = s.hi, kRest = s.rest, kRallyWait = s.rally;
+            taxi_off = s.off, lock_live = s.live;
+            kKeep = kMovesCost + kScanMin * kScanCost;
+            raid_on = true;
+            spent += 2 * BOTS * kRead + 400;  // count the sixteen reads in a rush game only: no cut-off on the turn the raid starts
+        }
     }
     if (map_id == 0 && turn_no == 4) {
         // Checkerboard: a bot that keeps all eight home this long out-drags our usual settings.
@@ -508,6 +683,38 @@ void play() {
     }
     spent += 2 * BOTS * kRead + BOTS * (kRead + 60) + 900;  // 900: the ride loop below
     nu = 0;
+
+    // Raiders: on a cell of theirs with a cow, drag it out. Else walk to their nearest cell with a cow.
+    if (raid_on) {
+        spent += (BOTS - kRaidFirst) * 300;
+        for (int i = kRaidFirst; i < BOTS; ++i) {
+            if (done[i]) continue;
+            const int c = at[i];
+            ride[i] = -1;
+            if (PV[c] < 0 && WAY[c] != STAY && taken(c) < C[c]) {
+                drop_target(i);
+                mv_way[i] = WAY[c], mv_drag[i] = take(c), drag_from[i] = c, done[i] = true;
+                continue;
+            }
+            if (tgt[i] >= 0 && (tgt[i] == c || PV[tgt[i]] >= 0 || C[tgt[i]] == 0)) drop_target(i);
+            if (tgt[i] < 0) {
+                int best = -1, bd = 99;
+                for (int y = 10; y < N; ++y)
+                    for (int q = y * N + 10; q < y * N + N; ++q) {
+                        if (q == c || C[q] <= claim[q]) continue;
+                        const int d = dist(c, q);
+                        if (d < bd) bd = d, best = q;
+                    }
+                if (best >= 0) tgt[i] = best, ++claim[best];
+            }
+            if (tgt[i] >= 0) mv_way[i] = toward(c, tgt[i]), mv_drag[i] = -1, done[i] = true;
+            else {
+                // None left: stay in their corner. Mite brings cows back when we leave (match 664).
+                const int post = 12 * N + 12;
+                mv_way[i] = c == post ? STAY : toward(c, post), mv_drag[i] = -1, done[i] = true;
+            }
+        }
+    }
 
     // Did last turn's locks hold? Held: we are still there and no cow left.
     for (int i = 0; i < BOTS; ++i) {
