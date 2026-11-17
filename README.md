@@ -41,14 +41,16 @@ phais view                                   # the newest replay
 
 ## Submit
 
-Anyone on the site can read our active bot's name. So submit a copy named `build-N`. Never `main`, and never a name that says what the bot does. N counts up.
+Anyone on the site can read our live bot's name. So the name must not say what the bot does.
 
 ```bash
-mkdir bots/build-4 && cp -r bots/main/src bots/build-4/
-phais submit build-4
+tools/submit.py main --dry   # show the next name
+tools/submit.py main         # phais submit main --name "<next name>"
 ```
 
-Copy only `src`. The `.phais` build folder holds paths to `bots/main`.
+Names come from `names.txt`, one per line, top first. Each is used once. Used names go to `names.used`. Edit `names.txt` to change the names.
+
+Submitting makes the new version live. `phais submissions live N` puts an old one back.
 
 ## Loop
 
