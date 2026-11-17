@@ -529,13 +529,6 @@ void play() {
         }
     }
 
-    // Did last turn's locks hold? Held: we are still there and no cow left.
-    for (int i = 0; i < BOTS; ++i) {
-        if (lock_cell[i] < 0) continue;
-        if (at[i] == lock_cell[i] && C[at[i]] >= lock_cows[i]) ++lock_ok;
-        else ++lock_bad;
-        lock_cell[i] = -1;
-    }
 
     // Lock: an enemy botlet stands with one of ours on a cell with cows. It will
     // drag one. Guess the drag from our own table turned half round, and pull
