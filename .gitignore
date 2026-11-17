@@ -7,3 +7,5 @@ bots/*/build/
 __pycache__/
 .cache/
 compile_commands.json
+.phais/
+bots/*/.phais/

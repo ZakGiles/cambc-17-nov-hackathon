@@ -1,25 +1,45 @@
 # cambc-17-nov-hackathon
 
-Three-hour Battlecode-style competition in C++, in pairs, 17 Nov 2026. The game is announced at the start.
+Three-hour competition in C++, in pairs, 17 Nov 2026. The game is PHAIS (Milkwars): botlets drag cows onto scoring cells. Rules: `RULES.md`.
+
+## Install
+
+Event site: https://dock-welfare-against-gpl.trycloudflare.com (the link may change; ask the organiser).
+
+1. Clone this repo.
+2. Open the site's CLI page. Download `phais` for your system.
+3. Put it on your PATH.
+   - macOS, Linux: `chmod +x phais`, then `mv phais ~/.local/bin/`.
+   - macOS only: `xattr -d com.apple.quarantine ~/.local/bin/phais`.
+   - Windows: put `phais.exe` in a folder on your PATH.
+4. Check: `phais --version` prints `phais 0.1.0`.
+5. In the repo: `phais build starter`. The first build fetches the compiler.
+6. Play: `phais run starter starter --maps maps/ --view`.
+7. To submit: make or join the team on the site, then `phais login`, then `phais submit main`.
+
+The arena needs Python 3: `python3 tools/arena.py main starter`.
 
 ## Layout
 
+- `bots/main`: our bot. `bots/vN`: frozen copies. `bots/starter`: the site's example.
+- `maps/`: the server's three maps, for offline games.
+- `RULES.md`: the game's facts.
+- `tools/arena.py`, `arena.json`: quick games with replays.
 - `lib/kit/`: tested C++20 headers. Run `make test`.
 - `lib/kitcambc/`: algorithms from the cambc bot. Not tested.
-- `tools/arena.py`, `arena.json`: quick games with replays.
-- `bots/main`: our bot. `bots/vN`: frozen copies.
-- `RULES.md`: the game's facts. Written on the day.
+- `sdk/`, `cmake/`, `phais.toml`: made by `phais init`.
+- `site/`: files saved from the event site.
 
-## On the day
+## Commands
 
-Start:
+```bash
+phais build main
+phais run main starter --maps maps/ --view   # all three maps
+phais view                                   # the newest replay
+phais submit main
+```
 
-1. Read the rules. Write `RULES.md`.
-2. Build the starter. Watch one replay.
-3. Submit the starter.
-4. Fill in `arena.json`.
-
-Loop:
+## Loop
 
 1. Watch a replay. Pick the biggest problem.
 2. `cp -r bots/main bots/vN`. Change `bots/main`.
@@ -31,18 +51,18 @@ Last 20 minutes: no new features. Submit the best version.
 ## Arena
 
 ```bash
-tools/arena.py main v1              # 6 games, both seats
+tools/arena.py main v1              # 6 games: 3 maps, both seats
 tools/arena.py main v1 --games 10
 tools/arena.py main v1 --open       # open the first replay
 ```
 
-It prints the score and a command to open each replay, losses first. Replays go to `replays/arena/`.
+It prints each score and a command to open each replay, losses first. Replays go to `replays/arena/`.
 
 Six games only show a big difference.
 
-`arena.json` is set for the `cambc` CLI. For another engine, change `cmd`, `first`, `second` and `view`. See `tools/arena.py --help`.
-
 ## Kit
+
+A bot is one folder, so copy what you use: `cp -r lib/kit bots/main/src/kit`.
 
 | header | what |
 | --- | --- |
@@ -54,38 +74,6 @@ Six games only show a big difference.
 | `deadline.h` | time left in a turn |
 | `svec.h` | fixed-size vector |
 
-```cpp
-#include "kit/assign.h"
-#include "kit/field.h"
+`lib/kitcambc/` has `walk.h`, `fight.h`, `plan.h` and `atlas.h` from the 2026a bot.
 
-kit::Field to_goal;  // one search serves every unit
-to_goal.bfs(w, h, goals, [&](kit::P p) { return !wall[p]; });
-kit::P next = to_goal.step(unit, [&](kit::P p) { return !taken[p]; });
-
-auto job = kit::assign_min(units.size(), targets.size(),
-                           [&](int u, int t) { return field[t][units[u]]; });
-```
-
-Build with `-std=c++20 -Ilib`. To submit one directory: `cp -r lib/kit bots/main/src/kit`.
-
-## Kit from cambc
-
-`lib/kitcambc/`: algorithms from the 2026a bot, without the SDK. They compile. They are not tested.
-
-| header | what |
-| --- | --- |
-| `walk.h` | `Walker`: step down a field past other units, detour when stuck, flee |
-| `fight.h` | `odds` to fight or flee, `pick_target`, `kite`, `flee_step` |
-| `plan.h` | `choose` the best job by reward per turn. `Radio`: team claims in shared bytes. `Bans`: give up stalled jobs |
-| `atlas.h` | `Atlas`: walking distances between points of interest |
-
-It needs `lib/kit` beside it. Copy both into the bot.
-
-## If it uses the `cambc` CLI
-
-```bash
-cambc init --yes
-cambc new main --lang cpp
-cambc run main starter-cpp --view
-cambc login && cambc submit main
-```
+The fuel limit is 20,000 a turn. Most of the kit costs too much to run every turn.

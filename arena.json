@@ -1,10 +1,9 @@
 {
-  "_note": "For the cambc CLI 5.0.0 (cambc2026a file names); 6 real games played through it on 17 Nov. Change it when the game is known; tools/arena.py --help lists the keys.",
-  "prepare": "cambc build {a} --release && cambc build {b} --release",
-  "cmd": "cambc run {first} {second} --map {map} --release -o {dir}/{stem} && mv {dir}/{stem}/*.repl26a {replay} && rmdir {dir}/{stem}",
-  "first": "Team A \\(.*\\) wins",
-  "second": "Team B \\(.*\\) wins",
-  "maps": "maps/*.map26a",
-  "ext": ".repl26a",
-  "view": "cambc view {replay}"
+  "_note": "For phais 0.1.0. One game is one map. tools/arena.py --help lists the keys.",
+  "prepare": "phais build $(basename {a}) && phais build $(basename {b})",
+  "cmd": "phais run {first}/.phais/bot.wasm {second}/.phais/bot.wasm --maps {map} --seed {seed} -o {dir}/{stem} && mv {dir}/{stem}/*-map-1.json {replay} && rm -r {dir}/{stem}",
+  "score": "scores (\\d+)-(\\d+)",
+  "maps": "maps/*.json",
+  "ext": ".json",
+  "view": "phais view {replay}"
 }

@@ -15,6 +15,8 @@ arena.json (any key can be overridden with a flag of the same name):
           land, {dir} its directory, {stem} its name without the extension.
   first   regex found in the command's output when the first seat won
   second  the same for the second seat
+  score   instead of first and second: a regex with two groups, the first
+          seat's score and the second's. The higher score wins.
   maps    glob of map files ("" for a game with no maps)
   ext     replay file extension
   view    shell command that opens one replay. Field: {replay}
@@ -39,7 +41,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-KEYS = ("prepare", "cmd", "first", "second", "maps", "ext", "view", "cwd")
+KEYS = ("prepare", "cmd", "first", "second", "score", "maps", "ext", "view", "cwd")
 
 
 def settings():
@@ -56,14 +58,14 @@ def settings():
     for key in KEYS:
         ap.add_argument("--" + key)
     args = ap.parse_args()
-    conf = {"prepare": "", "maps": "", "ext": ".replay", "view": "", "cwd": ".", "games": 6, "jobs": 3, "timeout": 600, "stagger": 0}
+    conf = {"prepare": "", "first": "", "second": "", "score": "", "maps": "", "ext": ".replay", "view": "", "cwd": ".", "games": 6, "jobs": 3, "timeout": 600, "stagger": 0}
     if os.path.exists(args.config):
         with open(args.config) as f:
             conf.update({k: v for k, v in json.load(f).items() if not k.startswith("_")})
     for key in KEYS + ("games", "jobs", "timeout", "stagger"):
         if getattr(args, key) is not None:
             conf[key] = getattr(args, key)
-    missing = [k for k in ("cmd", "first", "second") if not conf.get(k)]
+    missing = [k for k in (("cmd",) if conf.get("score") else ("cmd", "first", "second")) if not conf.get(k)]
     if missing:
         sys.exit(f"arena: set {', '.join(missing)} in {args.config} or as flags (see --help)")
     return args, conf
@@ -96,6 +98,16 @@ def play(game, conf, cwd):
     game["seconds"] = time.time() - start
     with open(game["log"], "w") as f:
         f.write(f"$ {cmd}\n{text}")
+    scored = re.search(conf["score"], text) if conf["score"] else None
+    if conf["score"]:
+        if not scored:
+            game["result"], game["note"] = "ERROR", note or "no score in the output"
+            return game
+        one, two = int(scored.group(1)), int(scored.group(2))
+        mine, theirs = (one, two) if game["a_first"] else (two, one)
+        game["result"] = "WIN" if mine > theirs else "LOSS" if mine < theirs else "draw"
+        game["note"] = f"{mine}-{theirs}" + (f"  {note}" if note else "")
+        return game
     first, second = re.search(conf["first"], text), re.search(conf["second"], text)
     if bool(first) == bool(second):
         game["result"] = "ERROR" if note or first else "draw"
