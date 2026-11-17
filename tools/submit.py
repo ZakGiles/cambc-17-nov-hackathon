@@ -35,7 +35,8 @@ def main():
     print(f"name: {name}")
     if dry:
         return 0
-    done = subprocess.run(["phais", "submit", bots[0], "--name", name], cwd=ROOT)
+    # The server takes names of 1 to 48 characters.
+    done = subprocess.run(["phais", "submit", bots[0], "--name", name[:48].strip()], cwd=ROOT)
     if done.returncode != 0:
         sys.exit(f"submit: phais failed (exit {done.returncode}). The name was not used.")
     with open(USED, "a") as f:

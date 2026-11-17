@@ -21,12 +21,14 @@ constexpr int kBudget = 19000;                       // of 20,000; cut-offs star
 constexpr int kMovesCost = kRead + BOTS * kMove;     // the turn check and eight moves
 constexpr int kScanCost = kRead + 50;
 // Cells re-counted a turn, least and most, by map. Fewer is better on checkerboard: tested 0 to 32.
-constexpr int kScanLo[kMaps] = {4, 16, 16}, kScanHi[kMaps] = {8, 32, 32};
+constexpr int kScanLo[kMaps] = {4, 8, 16}, kScanHi[kMaps] = {8, 16, 32};
 int kScanMin = 16, kScanMax = 32;
 int kKeep = kMovesCost + 16 * kScanCost;             // fuel a search must leave
 constexpr int kRest = 2;                             // turns a botlet waits after finding nothing
 constexpr int kTaxiFar = 6;                          // a target this far is worth a ride
-constexpr int kTaxiSize = 3;                         // botlets that make a ride
+// Botlets that make a ride, by map. The teammate found 4 beats 3 on frontier; on lair 3 is better.
+constexpr int kTaxiSizes[kMaps] = {4, 4, 3};
+int kTaxiSize = 3;
 // Rides pay where work is far apart. On checkerboard cows are everywhere and gathering wastes turns.
 constexpr bool kTaxiOn[kMaps] = {false, true, true};
 constexpr int kRallyReach = 3, kRallyWait = 4;       // steps to walk to a ride; turns to wait for the others
@@ -94,6 +96,7 @@ void identify() {
         map_id = m;
         PV = kP[m], WAY = kWay[m], GAIN = kGain[m], HOT = kHot[m], HOTN = kHotN[m], NEAR = kNearCells[m];
         kScanMin = kScanLo[m], kScanMax = kScanHi[m], kKeep = kMovesCost + kScanMin * kScanCost;
+        kTaxiSize = kTaxiSizes[m];
         std::memcpy(C, kC[m], CELLS);
         std::memcpy(L, kList[m], CELLS);
         std::memcpy(WH, kWhere[m], CELLS);
