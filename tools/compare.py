@@ -4,6 +4,7 @@
   tools/compare.py main                 # main against all the others
   tools/compare.py main s6 v10 starter  # main against these only
   tools/compare.py main --base v10      # also show the change from v10's results
+  tools/compare.py main s6 --noise 10   # ten games a map, each with one cow pair nudged
 
 One game a map, as the first seat. Games are deterministic and both seats give
 the same score, so one seat is enough. A row is one opponent: the score
@@ -12,6 +13,12 @@ ours are flagged: any cut-off is a bug.
 
 Read the rows, not only the sum. A bot can beat its parent head to head and
 still be worse against the rest.
+
+One game is one sample, and these games are chaotic: a change that should not
+matter can move a map by 80k. With --noise K each map is played K times, each
+time with a different pair of cows moved one cell (the values stay, so the bots
+still know the map). The table then shows the mean, and how many of the K
+games were won. Trust a difference only if it holds over the K games.
 """
 import glob
 import json
@@ -30,9 +37,28 @@ def build(bot):
     return subprocess.run(["phais", "build", bot], cwd=ROOT, capture_output=True, text=True).returncode == 0
 
 
-def play(a, b, out):
+def nudged(k, where):
+    """The three maps with cow pair k moved one cell, and its mirror cow moved to match."""
+    os.makedirs(where, exist_ok=True)
+    for name in MAPS:
+        m = json.load(open(os.path.join(ROOT, "maps", name + ".json")))
+        cows = m["cows"]
+        by_cell = {}
+        for c in cows:
+            by_cell.setdefault((c["x"], c["y"]), []).append(c)
+        a = cows[(2 * k * 7) % len(cows)]
+        twin = by_cell.get((13 - a["x"], 13 - a["y"]), [None])[0]
+        step = 1 if a["x"] < 13 else -1
+        a["x"] += step
+        if twin is not None and twin is not a:
+            twin["x"] -= step
+        json.dump(m, open(os.path.join(where, name + ".json"), "w"))
+    return where
+
+
+def play(a, b, out, maps="maps/"):
     shutil.rmtree(out, ignore_errors=True)
-    done = subprocess.run(["phais", "run", a, b, "--maps", "maps/", "--seed", "1", "-o", out],
+    done = subprocess.run(["phais", "run", a, b, "--maps", maps, "--seed", "1", "-o", out],
                           cwd=ROOT, capture_output=True, text=True)
     res = {}
     for path in glob.glob(os.path.join(out, "*-map-*.json")):
@@ -42,21 +68,42 @@ def play(a, b, out):
     return res if done.returncode == 0 and len(res) == len(MAPS) else None
 
 
-def results(bot, others, out):
+def play_many(a, b, out, noise):
+    """Mean difference and cut-offs a map over the noise games, and the games won."""
+    if noise <= 1:
+        r = play(a, b, out)
+        return None if r is None else {m: (r[m][0], r[m][1], int(r[m][0] > 0)) for m in MAPS}
+    tot = {m: [0, 0, 0] for m in MAPS}
+    for k in range(noise):
+        r = play(a, b, out, nudged(k, out + "-maps"))
+        if r is None:
+            return None
+        for m in MAPS:
+            tot[m][0] += r[m][0]
+            tot[m][1] += r[m][1]
+            tot[m][2] += r[m][0] > 0
+    return {m: (tot[m][0] // noise, tot[m][1], tot[m][2]) for m in MAPS}
+
+
+def results(bot, others, out, noise):
     rows = {}
     for o in others:
         if not build(o):
             rows[o] = None
             continue
-        rows[o] = play(bot, o, out)
+        rows[o] = play_many(bot, o, out, noise)
     return rows
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    base = sys.argv[sys.argv.index("--base") + 1] if "--base" in sys.argv else None
-    if base in args:
-        args.remove(base)
+    argv = sys.argv[1:]
+    base = argv[argv.index("--base") + 1] if "--base" in argv else None
+    noise = int(argv[argv.index("--noise") + 1]) if "--noise" in argv else 1
+    for flag in ("--base", "--noise"):
+        if flag in argv:
+            i = argv.index(flag)
+            del argv[i:i + 2]
+    args = [a for a in argv if not a.startswith("--")]
     if not args:
         sys.exit(__doc__)
     bot, others = args[0], args[1:]
@@ -66,11 +113,14 @@ def main():
     if not build(bot):
         sys.exit(f"compare: {bot} does not build")
     out = tempfile.mkdtemp(prefix="compare-")
-    rows = results(bot, others, out)
-    was = results(base, others, out) if base and build(base) else {}
+    rows = results(bot, others, out, noise)
+    was = results(base, others, out, noise) if base and build(base) else {}
     shutil.rmtree(out, ignore_errors=True)
+    shutil.rmtree(out + "-maps", ignore_errors=True)
 
     head = f"{bot} against".ljust(18) + "".join(m.rjust(14) for m in MAPS) + "sum".rjust(14)
+    if noise > 1:
+        head += f"   won of {noise}: " + " ".join(m[:5] for m in MAPS)
     print(head + (f"   change from {base}" if base else ""))
     total = [0, 0, 0]
     cuts = 0
@@ -83,6 +133,8 @@ def main():
         cuts += sum(r[m][1] for m in MAPS)
         total = [t + x for t, x in zip(total, d)]
         line = f"  {o:<16}" + "".join(f"{x:+14,d}" for x in d) + f"{sum(d):+14,d}"
+        if noise > 1:
+            line += "               " + " ".join(f"{r[m][2]:5d}" for m in MAPS)
         if base and was.get(o):
             line += f"   {sum(d) - sum(was[o][m][0] for m in MAPS):+,d}"
         lost = [m for m, x in zip(MAPS, d) if x < 0]
