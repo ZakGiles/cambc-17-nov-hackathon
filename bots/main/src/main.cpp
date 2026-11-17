@@ -26,8 +26,8 @@ int kScanMin = 16, kScanMax = 32;
 int kKeep = kMovesCost + 16 * kScanCost;             // fuel a search must leave
 constexpr int kRest = 2;                             // turns a botlet waits after finding nothing
 constexpr int kTaxiFar = 6;                          // a target this far is worth a ride
-// Botlets that make a ride, by map. The teammate found 4 beats 3 on frontier; on lair 3 is better.
-constexpr int kTaxiSizes[kMaps] = {4, 4, 3};
+// Botlets that make a ride, by map. Since the dodge, 3 beats 4 on frontier: +20k over the pool, and it beats s3.
+constexpr int kTaxiSizes[kMaps] = {4, 3, 3};
 int kTaxiSize = 3;
 // Rides pay where work is far apart. On checkerboard cows are everywhere and gathering wastes turns.
 constexpr bool kTaxiOn[kMaps] = {false, true, true};
@@ -37,6 +37,7 @@ constexpr bool kLockOn[kMaps] = {true, false, true};
 constexpr int kLockCost = 2 * BOTS * kRead + 1200;
 constexpr bool kChain = false;                       // checkerboard: drag toward the next cow. Tested: worse over the pool
 constexpr int kShyTurns = 10;                        // turns we dodge on a cell where a drag was cancelled
+constexpr bool kShyOn[kMaps] = {true, false, true};  // off on frontier: there a tug is better held than left (lost 29k to Astra with it on)
 
 const signed char* PV = nullptr;     // productivity
 const unsigned char* WAY = nullptr;  // the way to drag a cow from a cell; STAY = leave it
@@ -293,7 +294,7 @@ void play() {
         const int c = x < 0 || y < 0 || x >= N || y >= N ? -1 : y * N + x;
         const int from = drag_from[i];
         if (from >= 0 && from != c && C[from] > 0) set_cows(from, C[from] - 1);
-        if (plain[i] && from >= 0 && from == c) shy_cell[i] = c, shy_until[i] = turn_no + kShyTurns;
+        if (plain[i] && from >= 0 && from == c && (map_id < 0 || kShyOn[map_id])) shy_cell[i] = c, shy_until[i] = turn_no + kShyTurns;
         plain[i] = false;
         drag_from[i] = -1;
         at[i] = c;
