@@ -6,7 +6,7 @@ From the site's CLI page, 17 Nov. Marked "provisional" there. `?` = not checked 
 
 - Board 14×14. Coordinates 0 to 13.
 - 8 botlets a team. One program moves all 8.
-- We are bottom-left. The enemy is top-right. The API turns the board for us.
+- We are bottom-left. The enemy is top-right. The API turns the board for us, from either seat. Checked.
 - Default spawns: all 8 on (0,0), theirs on (13,13).
 - Maps turn 180° onto themselves. Pool so far: checkerboard, frontier, lair.
 - All moves happen at once.
@@ -14,7 +14,7 @@ From the site's CLI page, 17 Nov. Marked "provisional" there. `?` = not checked 
 ## Score
 
 - Each cell has a productivity from -10 to 10.
-- Positive cells are ours, near our corner. Negative cells are theirs. `?` sign from team B's view.
+- Positive cells are ours, near our corner. Negative cells are theirs. The sign is turned for us too. Checked.
 - Each turn a cow adds its cell's value to the side that owns the cell.
 - Scores add up every turn. `?` most points wins.
 
@@ -35,6 +35,9 @@ From the site's CLI page, 17 Nov. Marked "provisional" there. `?` = not checked 
 - Out of fuel ends the turn early. It is not a forfeit.
 - A trap or an exit forfeits. `main` must never return.
 - State stays in memory between turns.
+- Measured: a read (`get_*`) costs about 133 fuel. `submit_move` costs about 410. A loop step costs 7 to 10.
+- So a turn affords 8 moves, about 50 reads and a few short loops. No searches over the board.
+- A game is 500 turns. A replay lists `fuel_exhausted` for each side.
 
 ## API (`phais.hpp`)
 

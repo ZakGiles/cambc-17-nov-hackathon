@@ -17,6 +17,7 @@ arena.json (any key can be overridden with a flag of the same name):
   second  the same for the second seat
   score   instead of first and second: a regex with two groups, the first
           seat's score and the second's. The higher score wins.
+  note    a regex; what it matches in the output is printed beside the game
   maps    glob of map files ("" for a game with no maps)
   ext     replay file extension
   view    shell command that opens one replay. Field: {replay}
@@ -41,7 +42,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-KEYS = ("prepare", "cmd", "first", "second", "score", "maps", "ext", "view", "cwd")
+KEYS = ("prepare", "cmd", "first", "second", "score", "note", "maps", "ext", "view", "cwd")
 
 
 def settings():
@@ -58,7 +59,7 @@ def settings():
     for key in KEYS:
         ap.add_argument("--" + key)
     args = ap.parse_args()
-    conf = {"prepare": "", "first": "", "second": "", "score": "", "maps": "", "ext": ".replay", "view": "", "cwd": ".", "games": 6, "jobs": 3, "timeout": 600, "stagger": 0}
+    conf = {"prepare": "", "first": "", "second": "", "score": "", "note": "", "maps": "", "ext": ".replay", "view": "", "cwd": ".", "games": 6, "jobs": 3, "timeout": 600, "stagger": 0}
     if os.path.exists(args.config):
         with open(args.config) as f:
             conf.update({k: v for k, v in json.load(f).items() if not k.startswith("_")})
@@ -106,7 +107,8 @@ def play(game, conf, cwd):
         one, two = int(scored.group(1)), int(scored.group(2))
         mine, theirs = (one, two) if game["a_first"] else (two, one)
         game["result"] = "WIN" if mine > theirs else "LOSS" if mine < theirs else "draw"
-        game["note"] = f"{mine}-{theirs}" + (f"  {note}" if note else "")
+        extra = re.search(conf["note"], text) if conf["note"] else None
+        game["note"] = f"{mine}-{theirs}" + (f"  {extra.group(0)}" if extra else "") + (f"  {note}" if note else "")
         return game
     first, second = re.search(conf["first"], text), re.search(conf["second"], text)
     if bool(first) == bool(second):

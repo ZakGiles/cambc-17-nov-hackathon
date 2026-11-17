@@ -25,6 +25,7 @@ The arena needs Python 3: `python3 tools/arena.py main starter`.
 - `maps/`: the server's three maps, for offline games.
 - `RULES.md`: the game's facts.
 - `tools/arena.py`, `arena.json`: quick games with replays.
+- `tools/gen_maps.py`: writes `bots/main/src/maps.h` from `maps/`. Run it after a map changes.
 - `lib/kit/`: tested C++20 headers. Run `make test`.
 - `lib/kitcambc/`: algorithms from the cambc bot. Not tested.
 - `sdk/`, `cmake/`, `phais.toml`: made by `phais init`.
