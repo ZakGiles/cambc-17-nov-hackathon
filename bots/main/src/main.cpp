@@ -1,4 +1,4 @@
-// main v13: the teammate's s12 (opening tables) with three changes: main's lair table, the look-ahead's fuel counted, stacks preferred on checkerboard.
+// main v14: v13 with frontier guards against Swedish fish (from the fish session).
 // Drags each cow one step up a precomputed slope. Walks to the nearest cow worth dragging.
 //
 // Fuel: a read costs 133, a move 410, a loop step about 8. The turn has 20,000.
@@ -84,6 +84,20 @@ int frozen_run = 0, frozen_us = 0, frozen_them = 0, loose_until = -1;
 int max_turns = 500;
 int shy_cell[BOTS], shy_until[BOTS];  // a cell where our drag was cancelled: someone pulls against us there
 int rally = -1, rally_since = 0;         // the cell far walkers gather on, and since which turn
+// Frontier guards, against Swedish fish only. It steals from our corner through (0,1) only:
+// 85 times in one game, the last cow first, with none of us there. Guards stand on (0,1)
+// and pull the last cows back toward the corner: the pulls cancel and the raider is stuck.
+// On only against a bot that piles cows on its (3,8), our (10,5): no other bot we know does.
+// All who come home guard: seven raiders come in a wave.
+constexpr int kPost = N;             // (0,1)
+constexpr int kGuardFrom = 40;       // first turn we look for the pile
+constexpr int kGuards = 7;
+constexpr int kFishX = 10, kFishY = 5, kFishCows = 4;
+constexpr int kFishSeen = 3;         // checks in a row that must see the pile: cows hauled past do not stay
+bool fish = false;
+int fish_seen = 0;
+bool guard[BOTS];
+int n_guard = 0;
 
 void set_cows(int c, int n) {
     const int old = C[c];
@@ -407,6 +421,26 @@ void play() {
     }
     spent += 2 * BOTS * kRead + BOTS * (kRead + 60) + 900;  // 900: the ride loop below
     nu = 0;
+
+    if (map_id == 1 && !fish && turn_no >= kGuardFrom && (turn_no & 3) == 0)
+        // One read every fourth turn, left out of `spent`: counting it shifts every later turn of every game.
+        fish_seen = phais::get_cows(kFishX, kFishY) >= kFishCows ? fish_seen + 1 : 0, fish = fish_seen >= kFishSeen;
+    // Take guards from botlets that are home and not on a ride.
+    if (map_id == 1 && fish && turn_no >= kGuardFrom)
+        for (int i = 0; i < BOTS && n_guard < kGuards; ++i)
+            if (!guard[i] && !done[i] && ride[i] < 0 && (at[i] == 0 || at[i] == kPost)) guard[i] = true, ++n_guard, drop_target(i);
+    for (int i = 0; i < BOTS; ++i) {
+        if (!guard[i] || done[i]) continue;
+        const int c = at[i];
+        done[i] = true;
+        if (c == kPost) {
+            if (taken(c) < C[c]) mv_way[i] = 2, mv_drag[i] = take_last(c), drag_from[i] = c;  // else wait
+        } else if (c != 0 && c % N == 0 && c / N <= 4 && WAY[c] != STAY && taken(c) < C[c]) {
+            mv_way[i] = WAY[c], mv_drag[i] = take_last(c), drag_from[i] = c;  // pulled along with a cow: keep pulling it home
+        } else {
+            mv_way[i] = toward(c, kPost), mv_drag[i] = -1;
+        }
+    }
 
     // Did last turn's locks hold? Held: we are still there and no cow left.
     for (int i = 0; i < BOTS; ++i) {
