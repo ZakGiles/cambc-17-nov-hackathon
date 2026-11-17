@@ -1,4 +1,4 @@
-// main v19: the teammate's s25 as it is, plus a two-botlet lair raid that fires only on Mite's turn-4 rush.
+// main v22: the teammate's s26 as it is, plus a two-botlet lair raid that fires only on Mite's older turn-4 rush (live as v58).
 // Drags each cow one step up a precomputed slope. Walks to the nearest cow worth dragging.
 //
 // Fuel: a read costs 133, a move 410, a loop step about 8. The turn has 20,000.
@@ -577,6 +577,7 @@ void play() {
         // Lair: known openings at turn 4 and what beats each bot there.
         struct Lw { int n; int cells[8]; int ts, far, shy, lo, hi, rest, rally; bool off, live; };
         static const Lw kLw[] = {
+            {3, {3 * N + 1, 2 * N + 2, 5 * N + 4}, 5, 6, 120, 6, 24, 3, 4, false, false},  // Swedish fish #150
             {2, {3 * N + 2, 2 * N + 3}, 5, 10, 30, 4, 24, 3, 4, false, true},
             {3, {11 * N + 11, 12 * N + 11, 11 * N + 12}, 5, 8, 10, 4, 32, 4, 2, false, false},
         };
@@ -608,7 +609,7 @@ void play() {
         // cut-off in s23, and where that lands decides games.
         bool mite = cells[0] < 6 * N && cells[0] % N <= 5;
         if (mite)  // Mite #90, #132, #148 stand on (2,3), (3,2) and (4,3) only. Astra's rush stands elsewhere.
-            for (int k = 0; k < n; ++k) mite &= cells[k] == 3 * N + 2 || cells[k] == 2 * N + 3 || cells[k] == 3 * N + 4;
+            for (int k = 0; k < n; ++k) mite &= cells[k] == 3 * N + 2 || cells[k] == 2 * N + 3 || cells[k] == 3 * N + 4;  // not (3,4): against Mite #194 the raid made lair worse (tests 812, 813)
         if (mite) {
             const Lw& s = kLw[0];  // the settings tuned against Mite's rush
             kTaxiSize = s.ts, kTaxiFar = s.far, kShyTurns = s.shy, kScanMin = s.lo, kScanMax = s.hi, kRest = s.rest, kRallyWait = s.rally;
@@ -638,6 +639,7 @@ void play() {
             {7, {13 * N + 9, 12 * N + 10, 11 * N + 11, 13 * N + 11, 10 * N + 12, 9 * N + 13, 11 * N + 13}, 6, 32, 4, 0, 10, true, true, true, true, 3, 6},  // Astra #119
             {6, {13 * N + 9, 12 * N + 10, 11 * N + 11, 10 * N + 12, 12 * N + 12, 9 * N + 13}, 8, 16, 2, 8, 60, true, true, true, true, 4, 6},  // Swedish fish #124
             {7, {9 * N + 4, 11 * N + 4, 9 * N + 6, 11 * N + 7, 9 * N + 9, 9 * N + 11, 12 * N + 12}, 8, 8, 1, 6, 120, false, false, true, false, 2, 6},  // Mite #121, #132
+            {7, {13 * N + 9, 12 * N + 10, 11 * N + 11, 13 * N + 11, 12 * N + 12, 9 * N + 13, 11 * N + 13}, 2, 24, 1, 0, 60, false, true, true, true, 2, 9},  // Astra #138
             {4, {13 * N + 10, 12 * N + 11, 11 * N + 12, 12 * N + 13}, 6, 24, 1, 20, 120, true, true, false, true, 3, 9},  // bentheboss #79
             {1, {13 * N + 13}, 2, 24, 4, 8, 5, false, false, true, true, 4, 4},  // Swedish fish #52, #66: all home
             {6, {12 * N + 10, 11 * N + 11, 10 * N + 12, 11 * N + 12, 9 * N + 13, 13 * N + 13}, 4, 32, 2, 4, 60, true, false, false, false, 3, 9},  // Swedish fish #76
