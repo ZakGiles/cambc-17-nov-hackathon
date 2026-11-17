@@ -13,6 +13,8 @@ Three-hour Battlecode-style competition in C++, in pairs, 17 Nov 2026. The game 
 - Change something only after seeing it in a replay.
 - One change at a time. Freeze first: `cp -r bots/main bots/vN`.
 - A crash loses more than a heuristic wins. Guard indexes, dead units and empty lists.
+- Hardcoding for maps is allowed. There are only three. Keep a plain fallback for a map we have not seen.
+- Fuel is 20,000 a turn. A host call costs over 100. Count calls and loops before writing them.
 - Use `lib/kit` before writing an algorithm.
 - Stop features 20 minutes before the end.
 - Commit each version that works.
