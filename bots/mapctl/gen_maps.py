@@ -20,6 +20,24 @@ NEAR = 8
 STEP = {"checkerboard": 5, "frontier": 1, "lair": 5}
 
 
+def lair_phi(p):
+    """Lair: push enemy cows out of their corner and on, until four steps out.
+    A bot like ours takes back only cows within three steps of its corner."""
+    def dist_to(i, keep):
+        x, y = i % N, i // N
+        return min(abs(j % N - x) + abs(j // N - y) for j in range(N * N) if keep(p[j]))
+    phi = []
+    for i in range(N * N):
+        if p[i] > 0:
+            phi.append(2 * p[i])
+        elif p[i] < 0:
+            phi.append(-30 - 5 * (dist_to(i, lambda v: v == 0) - 1))  # edge -30, deeper lower
+        else:
+            de = dist_to(i, lambda v: v < 0)
+            phi.append(-5 * (4 - de) if de <= 3 else max(0, 20 - 5 * dist_to(i, lambda v: v > 0)))
+    return phi
+
+
 def tables(m):
     step = STEP[m["id"]]
     p = m["productivity"]
@@ -34,6 +52,8 @@ def tables(m):
             d = abs(j % N - x) + abs(j // N - y)
             best = max(best, 2 * p[j] - step * d)
         phi.append(best)
+    if m["id"] == "lair":
+        phi = lair_phi(p)
     way, gain = [], []
     for i in range(N * N):
         x, y = i % N, i // N
