@@ -1,4 +1,4 @@
-// main v14: v13 with frontier guards against Swedish fish (from the fish session).
+// main v15: the teammate's s17 (opening tables for checkerboard, frontier and lair) with the turn-4 lair reads counted and the Swedish fish guards.
 // Drags each cow one step up a precomputed slope. Walks to the nearest cow worth dragging.
 //
 // Fuel: a read costs 133, a move 410, a loop step about 8. The turn has 20,000.
@@ -177,8 +177,8 @@ inline int score(int c, int x, int y) {
 
 // The nearest cell to fetch a cow from, from the precomputed list. -1 when none.
 inline int find_listed(int me) {
-    // Nearest first. On checkerboard, among cells as near, the one with the most free
-    // cows: a botlet can step in and out of a stack with no walking between drags.
+    // Nearest first. Among cells as near, the one with the most free cows: a botlet
+    // can step in and out of a stack with no walking between drags.
     const int mx = me % N, my = me / N;
     int best = -1, best_d = 99, best_n = 0;
     for (int k = 0; k < kNearN; ++k) {
@@ -189,7 +189,7 @@ inline int find_listed(int me) {
         const int cx = c % N, cy = c / N;
         const int d = (cx > mx ? cx - mx : mx - cx) + (cy > my ? cy - my : my - cy);
         if (d > best_d) break;  // the list is sorted by distance
-        if (d < best_d || (n > best_n && map_id == 0)) best = c, best_d = d, best_n = n;
+        if (d < best_d || (n > best_n && map_id == 0)) best = c, best_d = d, best_n = n;  // stacks: checkerboard only
     }
     return best;
 }
@@ -357,10 +357,61 @@ void read_opponent() {
         kScanMin = kScanMax = 12;
         kKeep = kMovesCost + kScanMin * kScanCost;
     }
+    // Known frontier openings at turn 6 and what beats each bot there.
+    struct Fw { int n; int cells[8]; int ts, far, shy, lo, hi, rest, rally; bool off; };
+    static const Fw kFw[] = {
+        {2, {13 * N + 7, 7 * N + 13}, 3, 10, 0, 8, 8, 1, 4, true},  // Mite
+        {2, {13 * N + 8, 8 * N + 13}, 4, 12, 10, 8, 8, 4, 4, false},  // bentheboss
+        {1, {13 * N + 13}, 4, 4, 5, 8, 32, 3, 4, true},  // Swedish fish: all home
+    };
+    for (const Fw& s : kFw) {
+        if (s.n != n) continue;
+        bool all = true;
+        for (int k = 0; k < n && all; ++k) {
+            bool hit = false;
+            for (int q = 0; q < n; ++q) hit |= cells[q] == s.cells[k];
+            all = hit;
+        }
+        if (!all) continue;
+        kTaxiSize = s.ts, kTaxiFar = s.far, kShyTurns = s.shy, kScanMin = s.lo, kScanMax = s.hi, kRest = s.rest, kRallyWait = s.rally;
+        taxi_off = s.off;
+        kKeep = kMovesCost + kScanMin * kScanCost;
+        break;
+    }
 }
 
 void play() {
     if (map_id == 1 && turn_no == 6) read_opponent();
+    if (map_id == 2 && turn_no == 4) {
+        // Lair: known openings at turn 4 and what beats each bot there.
+        spent += 2 * BOTS * kRead + 400;  // sixteen reads: uncounted, turn 4 ran out of fuel in every lair game
+        struct Lw { int n; int cells[8]; int ts, far, shy, lo, hi, rest, rally; bool off, live; };
+        static const Lw kLw[] = {
+            {2, {3 * N + 2, 2 * N + 3}, 5, 10, 30, 4, 24, 3, 4, false, true},
+            {3, {11 * N + 11, 12 * N + 11, 11 * N + 12}, 5, 8, 10, 4, 32, 4, 2, false, false},
+        };
+        int cells[BOTS], n = 0;
+        for (int j = 0; j < BOTS; ++j) {
+            const int c = phais::get_bot_y(1, j) * N + phais::get_bot_x(1, j);
+            bool seen = false;
+            for (int k = 0; k < n; ++k) seen |= cells[k] == c;
+            if (!seen) cells[n++] = c;
+        }
+        for (const Lw& s : kLw) {
+            if (s.n != n) continue;
+            bool all = true;
+            for (int k = 0; k < n && all; ++k) {
+                bool hit = false;
+                for (int q = 0; q < n; ++q) hit |= cells[q] == s.cells[k];
+                all = hit;
+            }
+            if (!all) continue;
+            kTaxiSize = s.ts, kTaxiFar = s.far, kShyTurns = s.shy, kScanMin = s.lo, kScanMax = s.hi, kRest = s.rest, kRallyWait = s.rally;
+            taxi_off = s.off, lock_live = s.live;
+            kKeep = kMovesCost + kScanMin * kScanCost;
+            break;
+        }
+    }
     if (map_id == 0 && turn_no == 4) {
         // Checkerboard: a bot that keeps all eight home this long out-drags our usual settings.
         int ecell[BOTS];
@@ -379,6 +430,8 @@ void play() {
         struct Sw { int n; int cells[8]; int lo, hi, rest, grace, shy; bool chain, live, adapt, taxi; int ts, far; };
         static const Sw kSw[] = {
             {4, {13 * N + 10, 12 * N + 11, 11 * N + 12, 12 * N + 13}, 6, 24, 1, 20, 120, true, true, false, true, 3, 9},  // bentheboss #79
+            {1, {13 * N + 13}, 2, 24, 4, 8, 5, false, false, true, true, 4, 4},  // Swedish fish #52, #66: all home
+            {6, {12 * N + 10, 11 * N + 11, 10 * N + 12, 11 * N + 12, 9 * N + 13, 13 * N + 13}, 4, 32, 2, 4, 60, true, false, false, false, 3, 9},  // Swedish fish #76
         };
         int cells[BOTS], n = 0;
         for (int j = 0; j < BOTS; ++j) {
@@ -422,23 +475,29 @@ void play() {
     spent += 2 * BOTS * kRead + BOTS * (kRead + 60) + 900;  // 900: the ride loop below
     nu = 0;
 
-    if (map_id == 1 && !fish && turn_no >= kGuardFrom && (turn_no & 3) == 0)
+    // Guards. Nothing but this one test runs on the other maps: a bot near its fuel limit
+    // lost two maps to cut-offs when the guard loop ran on every map.
+    if (map_id == 1 && turn_no >= kGuardFrom) {
         // One read every fourth turn, left out of `spent`: counting it shifts every later turn of every game.
-        fish_seen = phais::get_cows(kFishX, kFishY) >= kFishCows ? fish_seen + 1 : 0, fish = fish_seen >= kFishSeen;
-    // Take guards from botlets that are home and not on a ride.
-    if (map_id == 1 && fish && turn_no >= kGuardFrom)
-        for (int i = 0; i < BOTS && n_guard < kGuards; ++i)
-            if (!guard[i] && !done[i] && ride[i] < 0 && (at[i] == 0 || at[i] == kPost)) guard[i] = true, ++n_guard, drop_target(i);
-    for (int i = 0; i < BOTS; ++i) {
-        if (!guard[i] || done[i]) continue;
-        const int c = at[i];
-        done[i] = true;
-        if (c == kPost) {
-            if (taken(c) < C[c]) mv_way[i] = 2, mv_drag[i] = take_last(c), drag_from[i] = c;  // else wait
-        } else if (c != 0 && c % N == 0 && c / N <= 4 && WAY[c] != STAY && taken(c) < C[c]) {
-            mv_way[i] = WAY[c], mv_drag[i] = take_last(c), drag_from[i] = c;  // pulled along with a cow: keep pulling it home
-        } else {
-            mv_way[i] = toward(c, kPost), mv_drag[i] = -1;
+        if (!fish && (turn_no & 3) == 0)
+            fish_seen = phais::get_cows(kFishX, kFishY) >= kFishCows ? fish_seen + 1 : 0, fish = fish_seen >= kFishSeen;
+        if (fish) {
+            spent += 400;
+            // Take guards from botlets that are home and not on a ride.
+            for (int i = 0; i < BOTS && n_guard < kGuards; ++i)
+                if (!guard[i] && !done[i] && ride[i] < 0 && (at[i] == 0 || at[i] == kPost)) guard[i] = true, ++n_guard, drop_target(i);
+            for (int i = 0; i < BOTS; ++i) {
+                if (!guard[i] || done[i]) continue;
+                const int c = at[i];
+                done[i] = true;
+                if (c == kPost) {
+                    if (taken(c) < C[c]) mv_way[i] = 2, mv_drag[i] = take_last(c), drag_from[i] = c;  // else wait
+                } else if (c != 0 && c % N == 0 && c / N <= 4 && WAY[c] != STAY && taken(c) < C[c]) {
+                    mv_way[i] = WAY[c], mv_drag[i] = take_last(c), drag_from[i] = c;  // pulled along with a cow: keep pulling it home
+                } else {
+                    mv_way[i] = toward(c, kPost), mv_drag[i] = -1;
+                }
+            }
         }
     }
 
