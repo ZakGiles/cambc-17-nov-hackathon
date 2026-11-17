@@ -17,7 +17,7 @@ DIRS = [(0, 1), (1, 0), (0, -1), (-1, 0)]  # N E S W, as the SDK numbers them
 NEAR = 8
 # Potential lost a step, in half points. High: a cow only goes to a better cell
 # close by. Low: flat spots do not stop a cow on its way up a slope.
-STEP = {"checkerboard": 5, "frontier": 1, "lair": 5}
+STEP = {"checkerboard": 5, "frontier": 1, "lair": 3}  # lair 3 is the teammate's s6: +143k against Astra
 
 
 def tables(m):
