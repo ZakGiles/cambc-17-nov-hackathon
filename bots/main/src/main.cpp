@@ -1,3 +1,4 @@
+// main v12: the teammate's s10 (reads the opening, checkerboard look-ahead) with main's lair table, the look-ahead's fuel counted, and stacks preferred.
 // Drags each cow one step up a precomputed slope. Walks to the nearest cow worth dragging.
 //
 // Fuel: a read costs 133, a move 410, a loop step about 8. The turn has 20,000.
@@ -21,13 +22,13 @@ constexpr int kBudget = 19000;                       // of 20,000; cut-offs star
 constexpr int kMovesCost = kRead + BOTS * kMove;     // the turn check and eight moves
 constexpr int kScanCost = kRead + 50;
 // Cells re-counted a turn, least and most, by map. Fewer is better on checkerboard: tested 0 to 32.
-constexpr int kScanLo[kMaps] = {4,8,16}, kScanHi[kMaps] = {8,16,32};
+constexpr int kScanLo[kMaps] = {2,8,16}, kScanHi[kMaps] = {16,16,32};
 int kScanMin = 16, kScanMax = 32;
 int kKeep = kMovesCost + 16 * kScanCost;             // fuel a search must leave
-constexpr int kRestM[3] = {2,2,2}; int kRest = 2;                             // turns a botlet waits after finding nothing
-constexpr int kTaxiFarM[3] = {6,6,6}; int kTaxiFar = 6;                          // a target this far is worth a ride
+constexpr int kRestM[3] = {1,2,2}; int kRest = 2;                             // turns a botlet waits after finding nothing
+constexpr int kTaxiFarM[3] = {6,9,6}; int kTaxiFar = 6;                          // a target this far is worth a ride
 // Botlets that make a ride, by map. On frontier 3 scores 30k more than 4 over the pool.
-constexpr int kTaxiSizes[kMaps] = {4, 3, 3};
+constexpr int kTaxiSizes[kMaps] = {4, 4, 3};
 int kTaxiSize = 3;
 // Rides pay where work is far apart. On checkerboard cows are everywhere and gathering wastes turns.
 constexpr bool kTaxiOn[kMaps] = {false,true,true};
@@ -37,10 +38,10 @@ constexpr int kRallyWaitM[3] = {4,4,4}; constexpr int kRallyReach = 3; int kRall
 // against a bot that dodges it only wastes turns, against one that does not it is worth 60k to 400k.
 constexpr bool kLockOn[kMaps] = {true, false, true};
 constexpr bool kLockAdapt[kMaps] = {true, false, false};  // on lair it is better left on: -44k when it could turn off
-constexpr int kLockGrace = 4;
+int kLockGrace = 2;
 constexpr int kLockCost = 2 * BOTS * kRead + 1200;
-constexpr bool kChain = false;                       // checkerboard: drag toward the next cow. Unclear: +100k over four bots with noise, -1.9M over 28 bots at one seed
-constexpr int kShyM[3] = {60,0,10}; int kShyTurns = 10;                        // turns we dodge on a cell where a drag was cancelled
+bool kChain = true;                       // checkerboard: drag toward the next cow. Tested: worse over the pool
+constexpr int kShyM[3] = {30,0,10}; int kShyTurns = 10;                        // turns we dodge on a cell where a drag was cancelled
 
 const signed char* PV = nullptr;     // productivity
 const unsigned char* WAY = nullptr;  // the way to drag a cow from a cell; STAY = leave it
@@ -125,70 +126,29 @@ void identify() {
     }
 }
 
-// An unseen map: read it over six turns (eight if it is not a mirror). True while still reading.
+// An unseen map: read it over six turns, half the board a turn. True while still reading.
 // Steps are counted, not taken from the turn number, so a late turn skips nothing.
-// The slope is the one tools/gen_maps.py makes: a cell's worth is the best of
-// (2 * a cell's value - kLearnStep * the steps to it). Two sweeps give it exactly.
-// One sweep is near 10,000 fuel, so each gets its own turn.
-// Maps turn 180 degrees onto themselves with the sign turned. So read half the board
-// and mirror it, and check eight cells of the other half. A map that fails the check
-// gets its other half read too.
-constexpr int kLearnStep = 5;
-short phi_seen[CELLS];
 int learn_step = 0;
-bool mirror_ok = true;
 bool learn() {
-    static constexpr int check[8] = {195, 182, 13 * N + 7, 10 * N + 3, 9 * N + 12, 12 * N + 9, 7 * N + 0, 8 * N + 13};
-    if (learn_step >= 8) return false;
-    if (learn_step == 0) {  // cows first: on turn 0 nothing has moved yet, so the mirror is exact
-        for (int c = 0; c < 98; ++c) {
-            const int n = phais::get_cows(c % N, c / N);
-            set_cows(c, n), set_cows(CELLS - 1 - c, n);
-        }
-    } else if (learn_step == 1) {
-        for (int c = 0; c < 98; ++c) {
-            const int p = phais::get_productivity(c % N, c / N);
-            p_seen[c] = static_cast<signed char>(p), p_seen[CELLS - 1 - c] = static_cast<signed char>(-p);
-        }
-        for (int k = 0; k < 8 && mirror_ok; ++k)
-            mirror_ok = p_seen[check[k]] == phais::get_productivity(check[k] % N, check[k] / N);
-        if (mirror_ok) learn_step = 3;  // skip the other half: next is step 4
-    } else if (learn_step == 2) {  // not a mirror: read the other half, values then cows
-        for (int c = 98; c < CELLS; ++c) p_seen[c] = static_cast<signed char>(phais::get_productivity(c % N, c / N));
-    } else if (learn_step == 3) {
-        for (int c = 98; c < CELLS; ++c) set_cows(c, phais::get_cows(c % N, c / N));
-    } else if (learn_step == 4) {
-        for (int c = 0; c < CELLS; ++c) {  // from below and the left
-            int v = 2 * p_seen[c];
-            if (c % N > 0 && phi_seen[c - 1] - kLearnStep > v) v = phi_seen[c - 1] - kLearnStep;
-            if (c >= N && phi_seen[c - N] - kLearnStep > v) v = phi_seen[c - N] - kLearnStep;
-            phi_seen[c] = static_cast<short>(v);
-        }
-    } else if (learn_step == 5) {
-        for (int c = CELLS - 1; c >= 0; --c) {  // from above and the right
-            int v = phi_seen[c];
-            if (c % N < N - 1 && phi_seen[c + 1] - kLearnStep > v) v = phi_seen[c + 1] - kLearnStep;
-            if (c < CELLS - N && phi_seen[c + N] - kLearnStep > v) v = phi_seen[c + N] - kLearnStep;
-            phi_seen[c] = static_cast<short>(v);
-        }
-    } else {
+    if (learn_step >= 6) return false;
+    const int half = learn_step & 1, c0 = half * 98, c1 = c0 + 98;
+    if (learn_step < 2) {
+        for (int c = c0; c < c1; ++c) p_seen[c] = static_cast<signed char>(phais::get_productivity(c % N, c / N));
+    } else if (learn_step < 4) {
         static constexpr int step[4] = {N, 1, -N, -1};
-        static constexpr int order[4] = {2, 3, 0, 1};  // ties go home: S, W first
-        const int c0 = (learn_step - 6) * 98, c1 = c0 + 98;
-        if (learn_step == 6) HOTN = 0;
         for (int c = c0; c < c1; ++c) {
             const int x = c % N, y = c / N;
             const bool ok[4] = {y < N - 1, x < N - 1, y > 0, x > 0};
             int way = STAY, gain = 0;
-            for (int k = 0; k < 4; ++k) {
-                const int d = order[k];
-                if (ok[d] && phi_seen[c + step[d]] - phi_seen[c] > gain) gain = phi_seen[c + step[d]] - phi_seen[c], way = d;
-            }
+            for (int d = 0; d < 4; ++d)
+                if (ok[d] && p_seen[c + step[d]] - p_seen[c] > gain) gain = p_seen[c + step[d]] - p_seen[c], way = d;
             way_seen[c] = static_cast<unsigned char>(way);
-            gain_seen[c] = static_cast<signed char>(gain > 120 ? 120 : gain);
-            if (gain > 0) hot_seen[HOTN++] = static_cast<unsigned char>(c);  // worth a re-count: a cow here can be dragged
+            gain_seen[c] = static_cast<signed char>(gain);
+            hot_seen[c] = static_cast<unsigned char>(c);
         }
-        PV = p_seen, WAY = way_seen, GAIN = gain_seen, HOT = hot_seen;
+        PV = p_seen, WAY = way_seen, GAIN = gain_seen, HOT = hot_seen, HOTN = CELLS;
+    } else {
+        for (int c = c0; c < c1; ++c) set_cows(c, phais::get_cows(c % N, c / N));
     }
     ++learn_step;
     return true;
@@ -202,12 +162,21 @@ inline int score(int c, int x, int y) {
 
 // The nearest cell to fetch a cow from, from the precomputed list. -1 when none.
 inline int find_listed(int me) {
+    // Nearest first. Among cells as near, the one with the most free cows: a botlet
+    // can step in and out of a stack with no walking between drags.
+    const int mx = me % N, my = me / N;
+    int best = -1, best_d = 99, best_n = 0;
     for (int k = 0; k < kNearN; ++k) {
         const int c = NEAR[me][k];
         if (c == 255) break;
-        if (C[c] > claim[c]) return c;
+        const int n = C[c] - claim[c];
+        if (n <= 0) continue;
+        const int cx = c % N, cy = c / N;
+        const int d = (cx > mx ? cx - mx : mx - cx) + (cy > my ? cy - my : my - cy);
+        if (d > best_d) break;  // the list is sorted by distance
+        if (d < best_d || (n > best_n && map_id == 0)) best = c, best_d = d, best_n = n;  // stacks: checkerboard only
     }
-    return -1;
+    return best;
 }
 
 // The same by looking at every cell within two steps: for a map with no list.
@@ -348,7 +317,40 @@ int other_way(int c) {
     return STAY;
 }
 
+// Frontier: some bots beat our rides there (all eight still home at turn 6, or two pairs on the
+// edges at (7,13) and (13,7)). Against those, drop rides and scan a fixed 12 cells: that wins the map.
+bool taxi_off = false;
+void read_opponent() {
+    int cells[BOTS], n = 0;
+    for (int j = 0; j < BOTS; ++j) {
+        const int ex = phais::get_bot_x(1, j), ey = phais::get_bot_y(1, j);
+        const int c = ex < 0 || ey < 0 || ex >= N || ey >= N ? -1 : ey * N + ex;
+        bool seen = false;
+        for (int k = 0; k < n; ++k) seen |= cells[k] == c;
+        if (!seen) cells[n++] = c;
+    }
+    bool home = n == 1 && cells[0] == 13 * N + 13;
+    bool edges = n == 2 && ((cells[0] == 13 * N + 7 && cells[1] == 7 * N + 13) || (cells[1] == 13 * N + 7 && cells[0] == 7 * N + 13));
+    if (home || edges) {
+        taxi_off = true;
+        kRallyWait = 6;
+        kScanMin = kScanMax = 12;
+        kKeep = kMovesCost + kScanMin * kScanCost;
+    }
+}
+
 void play() {
+    if (map_id == 1 && turn_no == 6) read_opponent();
+    if (map_id == 0 && turn_no == 4) {
+        // Checkerboard: a bot that keeps all eight home this long out-drags our usual settings.
+        bool home = true;
+        for (int j = 0; j < BOTS; ++j) home &= phais::get_bot_x(1, j) == 13 && phais::get_bot_y(1, j) == 13;
+
+        if (home) {
+            kScanMin = 4, kScanMax = 16, kRest = 3, kLockGrace = 6, kShyTurns = 60, kChain = false;
+            kKeep = kMovesCost + kScanMin * kScanCost;
+        }
+    }
     for (int i = 0; i < BOTS; ++i) {
         const int x = phais::get_bot_x(0, i), y = phais::get_bot_y(0, i);
         const int c = x < 0 || y < 0 || x >= N || y >= N ? -1 : y * N + x;
@@ -448,6 +450,7 @@ void play() {
         spent += kBotlet;
         if (WAY[c] != STAY && taken(c) < C[c]) {
             int way = map_id == 0 && kChain ? chain_way(c) : WAY[c], idx = -1;
+            if (map_id == 0 && kChain) spent += 400;  // the look-ahead: uncounted, it ran a turn out of fuel
             if (shy_cell[i] == c && turn_no < shy_until[i]) {
                 // Our last drag here was cancelled. Take the last cow, or another way out, or leave.
                 if (C[c] - taken(c) >= 2) idx = take_last(c);
@@ -489,8 +492,7 @@ void play() {
         if (is_far || tgt[i] < 0) far[nf++] = i;  // idle botlets come along
     }
     const int rally_cost = 600 + (rally < 0 ? nf * nf * 40 : nf * 60);
-    // An unseen map rides too: tested on six new maps, better against all eight opponents.
-    if (lead >= 0 && nf >= kTaxiSize && (map_id < 0 || kTaxiOn[map_id]) && spent + rally_cost + kMovesCost < kBudget) {
+    if (lead >= 0 && nf >= kTaxiSize && map_id >= 0 && kTaxiOn[map_id] && !taxi_off && spent + rally_cost + kMovesCost < kBudget) {
         spent += rally_cost;
         // The gathering cell: where the most of them already stand on a spare cow.
         if (rally >= 0 && (C[rally] <= taken(rally) || turn_no - rally_since > 3 * kRallyWait)) rally = -1;
