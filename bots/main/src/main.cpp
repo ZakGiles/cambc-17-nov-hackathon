@@ -21,23 +21,26 @@ constexpr int kBudget = 19000;                       // of 20,000; cut-offs star
 constexpr int kMovesCost = kRead + BOTS * kMove;     // the turn check and eight moves
 constexpr int kScanCost = kRead + 50;
 // Cells re-counted a turn, least and most, by map. Fewer is better on checkerboard: tested 0 to 32.
-constexpr int kScanLo[kMaps] = {4, 8, 16}, kScanHi[kMaps] = {8, 16, 32};
+constexpr int kScanLo[kMaps] = {4,8,16}, kScanHi[kMaps] = {8,16,32};
 int kScanMin = 16, kScanMax = 32;
 int kKeep = kMovesCost + 16 * kScanCost;             // fuel a search must leave
-constexpr int kRest = 2;                             // turns a botlet waits after finding nothing
-constexpr int kTaxiFar = 6;                          // a target this far is worth a ride
-// Botlets that make a ride, by map. Since the dodge, 3 beats 4 on frontier: +20k over the pool, and it beats s3.
+constexpr int kRestM[3] = {2,2,2}; int kRest = 2;                             // turns a botlet waits after finding nothing
+constexpr int kTaxiFarM[3] = {6,6,6}; int kTaxiFar = 6;                          // a target this far is worth a ride
+// Botlets that make a ride, by map. On frontier 3 scores 30k more than 4 over the pool.
 constexpr int kTaxiSizes[kMaps] = {4, 3, 3};
 int kTaxiSize = 3;
 // Rides pay where work is far apart. On checkerboard cows are everywhere and gathering wastes turns.
-constexpr bool kTaxiOn[kMaps] = {false, true, true};
-constexpr int kRallyReach = 3, kRallyWait = 4;       // steps to walk to a ride; turns to wait for the others
+constexpr bool kTaxiOn[kMaps] = {false,true,true};
+constexpr int kRallyWaitM[3] = {4,4,4}; constexpr int kRallyReach = 3; int kRallyWait = 4;       // steps to walk to a ride; turns to wait for the others
 // Lock (from the teammate's s2): pull against the drag an enemy botlet on our cows will make.
+// On where it can pay. In a game it turns itself off once it has failed more than it has worked:
+// against a bot that dodges it only wastes turns, against one that does not it is worth 60k to 400k.
 constexpr bool kLockOn[kMaps] = {true, false, true};
+constexpr bool kLockAdapt[kMaps] = {true, false, false};  // on lair it is better left on: -44k when it could turn off
+constexpr int kLockGrace = 4;
 constexpr int kLockCost = 2 * BOTS * kRead + 1200;
 constexpr bool kChain = false;                       // checkerboard: drag toward the next cow. Tested: worse over the pool
-constexpr int kShyTurns = 10;                        // turns we dodge on a cell where a drag was cancelled
-constexpr bool kShyOn[kMaps] = {true, false, true};  // off on frontier: there a tug is better held than left (lost 29k to Astra with it on)
+constexpr int kShyM[3] = {60,0,10}; int kShyTurns = 10;                        // turns we dodge on a cell where a drag was cancelled
 
 const signed char* PV = nullptr;     // productivity
 const unsigned char* WAY = nullptr;  // the way to drag a cow from a cell; STAY = leave it
@@ -68,6 +71,8 @@ int ride_at[BOTS];            // where it was when it last pulled: a ride that d
 bool done[BOTS];              // this turn's move is set
 int uc[BOTS + 1], un[BOTS + 1], ur[BOTS + 1], nu = 0;  // cells dragged from this turn; cows taken from the front and the back
 bool plain[BOTS];             // last turn's move was an ordinary drag
+int lock_cell[BOTS], lock_cows[BOTS];  // where this botlet locked last turn, and the cows there then
+int lock_ok = 0, lock_bad = 0;         // locks that held, and locks that did not
 int shy_cell[BOTS], shy_until[BOTS];  // a cell where our drag was cancelled: someone pulls against us there
 int rally = -1, rally_since = 0;         // the cell far walkers gather on, and since which turn
 
@@ -98,6 +103,7 @@ void identify() {
         PV = kP[m], WAY = kWay[m], GAIN = kGain[m], HOT = kHot[m], HOTN = kHotN[m], NEAR = kNearCells[m];
         kScanMin = kScanLo[m], kScanMax = kScanHi[m], kKeep = kMovesCost + kScanMin * kScanCost;
         kTaxiSize = kTaxiSizes[m];
+        kShyTurns = kShyM[m]; kRest = kRestM[m]; kTaxiFar = kTaxiFarM[m]; kRallyWait = kRallyWaitM[m];
         std::memcpy(C, kC[m], CELLS);
         std::memcpy(L, kList[m], CELLS);
         std::memcpy(WH, kWhere[m], CELLS);
@@ -294,7 +300,7 @@ void play() {
         const int c = x < 0 || y < 0 || x >= N || y >= N ? -1 : y * N + x;
         const int from = drag_from[i];
         if (from >= 0 && from != c && C[from] > 0) set_cows(from, C[from] - 1);
-        if (plain[i] && from >= 0 && from == c && (map_id < 0 || kShyOn[map_id])) shy_cell[i] = c, shy_until[i] = turn_no + kShyTurns;
+        if (plain[i] && from >= 0 && from == c) shy_cell[i] = c, shy_until[i] = turn_no + kShyTurns;
         plain[i] = false;
         drag_from[i] = -1;
         at[i] = c;
@@ -309,10 +315,19 @@ void play() {
     spent += 2 * BOTS * kRead + BOTS * (kRead + 60) + 900;  // 900: the ride loop below
     nu = 0;
 
+    // Did last turn's locks hold? Held: we are still there and no cow left.
+    for (int i = 0; i < BOTS; ++i) {
+        if (lock_cell[i] < 0) continue;
+        if (at[i] == lock_cell[i] && C[at[i]] >= lock_cows[i]) ++lock_ok;
+        else ++lock_bad;
+        lock_cell[i] = -1;
+    }
+
     // Lock: an enemy botlet stands with one of ours on a cell with cows. It will
     // drag one. Guess the drag from our own table turned half round, and pull
     // the same cow the other way: the pulls cancel and the cow stays.
-    if (map_id >= 0 && kLockOn[map_id] && spent + kLockCost + kKeep < kBudget) {
+    if (map_id >= 0 && kLockOn[map_id] && (!kLockAdapt[map_id] || lock_bad <= lock_ok + kLockGrace) &&
+        spent + kLockCost + kKeep < kBudget) {
         spent += kLockCost;
         int ec[BOTS];
         for (int j = 0; j < BOTS; ++j) {
@@ -335,6 +350,7 @@ void play() {
             drop_target(i);
             mv_way[i] = (e + 2) & 3, mv_drag[i] = take(c);
             drag_from[i] = c;
+            lock_cell[i] = c, lock_cows[i] = C[c];
             done[i] = true;
         }
     }
@@ -466,7 +482,7 @@ void play() {
 }
 
 int main() {
-    for (int i = 0; i < BOTS; ++i) tgt[i] = drag_from[i] = ride[i] = ride_at[i] = shy_cell[i] = -1;
+    for (int i = 0; i < BOTS; ++i) tgt[i] = drag_from[i] = ride[i] = ride_at[i] = shy_cell[i] = lock_cell[i] = -1;
     for (;;) {
         turn_no = phais::get_turn();
         spent = kRead;
